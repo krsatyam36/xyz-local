@@ -154,6 +154,12 @@ def doctor():
     cfg = get_config()
     console.print("[bold]xyz-local doctor[/bold]\n")
 
+    import platform
+    console.print(f"  Python:   {platform.python_version()}")
+    console.print(f"  Platform: {platform.system()} {platform.release()}")
+    console.print(f"  Version:  {__version__}")
+    console.print()
+
     async def _run():
         client = OllamaClient(base_url=cfg.ollama_base_url)
         try:
