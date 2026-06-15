@@ -8,6 +8,7 @@ from typing import Any, AsyncGenerator, Optional
 
 import httpx
 from rich.console import Console
+from rich.panel import Panel
 
 console = Console()
 
@@ -58,6 +59,17 @@ def _parse_tool_call_fallback(text: str) -> list[dict[str, Any]]:
     return tool_calls
 
 
+def _ollama_connect_error() -> str:
+    return (
+        "[red]Cannot connect to Ollama.[/red]\n\n"
+        "Make sure Ollama is running:\n"
+        "  1. Open a terminal and run: [bold]ollama serve[/bold]\n"
+        "  2. Or start it as a service: [bold]systemctl --user start ollama[/bold]\n"
+        "  3. Verify with: [bold]ollama list[/bold]\n\n"
+        "If Ollama uses a non-default port, set: [bold]export OLLAMA_BASE_URL=http://host:port[/bold]"
+    )
+
+
 class OllamaClient:
     def __init__(self, base_url: str = "http://localhost:11434", model: str = "qwen2.5-coder:latest"):
         self.base_url = base_url.rstrip("/")
@@ -65,10 +77,17 @@ class OllamaClient:
         self.client = httpx.AsyncClient(timeout=300.0)
 
     async def list_models(self) -> list[dict[str, Any]]:
-        resp = await self.client.get(f"{self.base_url}/api/tags")
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("models", [])
+        try:
+            resp = await self.client.get(f"{self.base_url}/api/tags")
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("models", [])
+        except (httpx.ConnectError, httpx.TimeoutException):
+            console.print(Panel(_ollama_connect_error(), title="Connection Error", border_style="red"))
+            return []
+        except httpx.HTTPStatusError as e:
+            console.print(f"[red]Ollama returned HTTP {e.response.status_code}:[/red] {e.response.text[:200]}")
+            return []
 
     async def chat(
         self,
