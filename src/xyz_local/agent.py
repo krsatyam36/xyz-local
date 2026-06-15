@@ -210,6 +210,10 @@ class Agent:
         while turn < self.config.max_turns:
             turn += 1
 
+            total_chars = sum(len(m.get("content", "")) for m in messages)
+            if total_chars > 30000:
+                console.print(f"[yellow]Warning: Large context (~{total_chars} chars). Consider /clear to reset.[/yellow]")
+
             if self.verbose:
                 console.print(f"[dim]Turn {turn}/{self.config.max_turns} - Messages: {len(messages)}[/dim]")
             console.print("[dim]Thinking...[/dim]", end="")
