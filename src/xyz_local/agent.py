@@ -98,6 +98,7 @@ class Agent:
         self.memory = self._load_or_create_memory(resume_session)
         self.memory.model = client.model
         self._last_user_input: str = ""
+        self._response_cache: dict[str, str] = {}
 
     def _load_or_create_memory(self, session_id: Optional[str]) -> SessionMemory:
         if session_id:
@@ -204,6 +205,13 @@ class Agent:
         self.memory.add_message("user", user_input)
         self.memory.auto_name()
 
+        if self._response_cache and original_input in self._response_cache:
+            cached = self._response_cache[original_input]
+            console.print(cached)
+            self.memory.add_message("assistant", cached)
+            self.memory.save(self.config.sessions_dir)
+            return cached
+
         messages = self.memory.get_messages()
         turn = 0
 
@@ -254,18 +262,17 @@ class Agent:
                 tool_calls = _parse_tool_call_fallback(full_response)
 
             if not tool_calls:
-                if cleaned_response.strip():
-                    console.print(cleaned_response)
-                    self.memory.add_message("assistant", cleaned_response)
-                elif full_response.strip():
-                    console.print(full_response)
-                    self.memory.add_message("assistant", full_response)
+                result = cleaned_response or full_response or ""
+                if result:
+                    self._response_cache[original_input] = result
+                    console.print(cleaned_response if cleaned_response.strip() else full_response)
+                    self.memory.add_message("assistant", cleaned_response if cleaned_response.strip() else full_response)
                 else:
-                    fallback_msg = "I received an empty response from the model. Could you please rephrase your request?"
-                    console.print(f"[yellow]{fallback_msg}[/yellow]")
-                    self.memory.add_message("assistant", fallback_msg)
+                    result = "I received an empty response from the model. Could you please rephrase your request?"
+                    console.print(f"[yellow]{result}[/yellow]")
+                    self.memory.add_message("assistant", result)
                 self.memory.save(self.config.sessions_dir)
-                return cleaned_response or full_response or fallback_msg
+                return result
 
             cleaned_for_history = cleaned_response or full_response
             messages.append({"role": "assistant", "content": cleaned_for_history})
