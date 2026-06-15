@@ -189,18 +189,20 @@ def doctor():
     async def _run():
         client = OllamaClient(base_url=cfg.ollama_base_url)
         try:
+            version = await client.get_version()
             models = await client.list_models()
             await client.close()
-            return models
+            return version, models
         except Exception as e:
             await client.close()
             raise e
 
     import asyncio
     try:
-        models = asyncio.run(_run())
+        version, models = asyncio.run(_run())
         console.print(f"[green]✓[/green] Ollama reachable at {cfg.ollama_base_url}")
-        console.print(f"  Found {len(models)} models.")
+        console.print(f"  Version: {version}")
+        console.print(f"  Models:  {len(models)} found.")
     except Exception as e:
         console.print(f"[red]✗[/red] Cannot reach Ollama: {e}")
         console.print("  Make sure `ollama serve` is running.")

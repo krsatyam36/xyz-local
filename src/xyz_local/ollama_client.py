@@ -85,6 +85,15 @@ class OllamaClient:
         except Exception:
             return False
 
+    async def get_version(self) -> str:
+        """Get Ollama version string."""
+        try:
+            resp = await self.client.get(f"{self.base_url}/api/version", timeout=5.0)
+            resp.raise_for_status()
+            return resp.json().get("version", "unknown")
+        except Exception:
+            return "unknown"
+
     async def list_models(self) -> list[dict[str, Any]]:
         try:
             resp = await self.client.get(f"{self.base_url}/api/tags")
