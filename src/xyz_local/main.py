@@ -242,3 +242,22 @@ def doctor():
     console.print("\n[dim]Recommended for your hardware:[/dim]")
     console.print("  xyz-local chat -m qwen2.5-coder:latest --trust   (4.7 GB)")
     console.print("  xyz-local chat -m gemma3:4b --trust              (3.3 GB - fastest)")
+
+
+@app.command()
+def run(
+    prompt: str = typer.Argument(..., help="The prompt to process"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Model to use"),
+    trust: bool = typer.Option(False, "--trust", help="Enable trust mode"),
+):
+    """Run a single prompt in non-interactive mode and exit."""
+    cfg = get_config()
+    chosen_model = model or cfg.default_model
+
+    client = OllamaClient(base_url=cfg.ollama_base_url, model=chosen_model, timeout=cfg.ollama_timeout)
+    agent = Agent(client=client, config=cfg, trust_mode=trust)
+
+    import asyncio
+    response = asyncio.run(agent.process_turn(prompt))
+    if response and not any(response.startswith(p) for p in ("Hello!", "I am a local")):
+        console.print(response)
