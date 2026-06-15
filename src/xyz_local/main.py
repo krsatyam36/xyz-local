@@ -106,12 +106,29 @@ def models():
 
 
 @app.command()
-def sessions():
-    """List previous sessions."""
+def sessions(
+    cleanup: bool = typer.Option(False, "--cleanup", "-c", help="Remove all session files"),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation for cleanup"),
+):
+    """List or clean up previous sessions."""
     cfg = get_config()
     sessions_dir = cfg.sessions_dir
     if not sessions_dir.exists():
         console.print("[dim]No sessions yet.[/dim]")
+        return
+
+    if cleanup:
+        session_files = list(sessions_dir.glob("*.json"))
+        if not session_files:
+            console.print("[dim]No sessions to clean.[/dim]")
+            return
+        if not force:
+            from rich.prompt import Confirm
+            if not Confirm.ask(f"Remove {len(session_files)} session file(s)?"):
+                return
+        for f in session_files:
+            f.unlink()
+        console.print(f"[green]Removed {len(session_files)} session file(s).[/green]")
         return
 
     table = Table(title="Previous Sessions")
@@ -120,7 +137,13 @@ def sessions():
     table.add_column("Model")
 
     for f in sorted(sessions_dir.glob("*.json")):
-        table.add_row(f.stem, "", "")
+        import json
+        meta = json.loads(f.read_text(encoding="utf-8"))
+        table.add_row(
+            f.stem,
+            meta.get("created", "Unknown")[:19],
+            meta.get("model", ""),
+        )
 
     console.print(table)
 
