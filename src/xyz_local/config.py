@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -23,9 +25,28 @@ class Config:
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
 
 
+def _load_config_file() -> dict[str, Any]:
+    config_path = Path.home() / ".xyz-local" / "config.json"
+    if config_path.exists():
+        try:
+            return json.loads(config_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
 def get_config() -> Config:
-    """Load config, allowing simple env overrides."""
+    """Load config from file, then env overrides."""
     cfg = Config()
+    file_cfg = _load_config_file()
+
+    cfg.default_model = file_cfg.get("default_model", cfg.default_model)
+    cfg.big_model = file_cfg.get("big_model", cfg.big_model)
+    cfg.max_turns = int(file_cfg.get("max_turns", cfg.max_turns))
+    cfg.temperature = float(file_cfg.get("temperature", cfg.temperature))
+    cfg.ollama_timeout = int(file_cfg.get("ollama_timeout", cfg.ollama_timeout))
+    if "ollama_base_url" in file_cfg:
+        cfg.ollama_base_url = file_cfg["ollama_base_url"].rstrip("/")
 
     if model := os.getenv("XYZ_LOCAL_DEFAULT_MODEL"):
         cfg.default_model = model
