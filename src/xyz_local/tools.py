@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 from pathlib import Path
 from typing import Any, Optional
@@ -53,12 +54,15 @@ def list_directory(path: str = ".") -> dict[str, Any]:
         for entry in sorted(p.iterdir()):
             is_dir = entry.is_dir()
             icon = "📁" if is_dir else type_icons.get(entry.suffix.lower(), "📄")
-            raw_size = entry.stat().st_size if entry.is_file() else None
+            fstat = entry.stat()
+            raw_size = fstat.st_size if entry.is_file() else None
+            mode_str = stat.filemode(fstat.st_mode)
             entries.append({
                 "name": entry.name,
                 "type": "dir" if is_dir else "file",
                 "size": raw_size,
                 "size_human": _human_size(raw_size) if raw_size is not None else None,
+                "mode": mode_str,
                 "icon": icon,
             })
     except PermissionError:
