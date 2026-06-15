@@ -29,7 +29,7 @@ def normalize_path(path: str) -> Path:
     return p.resolve()
 
 
-def list_directory(path: str = ".") -> dict[str, Any]:
+def list_directory(path: str = ".", sort_by: str = "name", sort_desc: bool = False) -> dict[str, Any]:
     p = normalize_path(path)
     if not p.exists():
         suggestion = ""
@@ -52,7 +52,16 @@ def list_directory(path: str = ".") -> dict[str, Any]:
         ".pdf": "📕", ".zip": "📦", ".tar": "📦", ".gz": "📦",
     }
     try:
-        for entry in sorted(p.iterdir()):
+        raw_entries = list(p.iterdir())
+        if sort_by == "name":
+            raw_entries.sort(key=lambda e: e.name, reverse=sort_desc)
+        elif sort_by == "size":
+            raw_entries.sort(key=lambda e: e.stat().st_size if e.is_file() else 0, reverse=not sort_desc)
+        elif sort_by == "modified":
+            raw_entries.sort(key=lambda e: e.stat().st_mtime, reverse=not sort_desc)
+        elif sort_by == "type":
+            raw_entries.sort(key=lambda e: (0 if e.is_dir() else 1, e.name), reverse=sort_desc)
+        for entry in raw_entries:
             is_dir = entry.is_dir()
             icon = "📁" if is_dir else type_icons.get(entry.suffix.lower(), "📄")
             fstat = entry.stat()
@@ -316,6 +325,8 @@ TOOL_DEFINITIONS = [
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "Directory path to list. Use '.' for current directory."},
+                    "sort_by": {"type": "string", "description": "Sort field: name, size, modified, or type", "default": "name"},
+                    "sort_desc": {"type": "boolean", "description": "Sort in descending order", "default": False},
                 },
                 "required": ["path"],
             },
