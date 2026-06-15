@@ -65,10 +65,31 @@ def chat(
         os.chdir(target)
         console.print(f"[dim]Changed working directory to: {target}[/dim]")
 
+    async def _fetch_model_info():
+        try:
+            client2 = OllamaClient(base_url=cfg.ollama_base_url)
+            models = await client2.list_models()
+            for m in models:
+                if m.get("name", "").startswith(chosen_model):
+                    return m.get("details", {}).get("parameter_size", "?")
+            return None
+        except Exception:
+            return None
+
+    model_info = ""
+    try:
+        import asyncio
+        param_size = asyncio.run(_fetch_model_info())
+        if param_size:
+            model_info = f" ({param_size})"
+    except Exception:
+        pass
+
     console.print(Panel.fit(
         f"[bold cyan]xyz-local[/bold cyan] — Local AI Coding Agent (Ollama)\n"
-        f"Model: [green]{chosen_model}[/green]\n"
-        f"Trust mode: {'[yellow]ON[/yellow]' if trust else '[dim]OFF[/dim]'}",
+        f"Model: [green]{chosen_model}{model_info}[/green]\n"
+        f"Trust mode: {'[yellow]ON[/yellow]' if trust else '[dim]OFF[/dim]'}\n"
+        f"Session: [dim]{session or 'new'}[/dim]",
         title="Starting Session",
         border_style="cyan"
     ))
