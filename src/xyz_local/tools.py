@@ -7,6 +7,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
+from xyz_local.safety import classify_command, PermissionResult, PermissionTier, is_dangerous_write_path
+
 
 def _human_size(bytes: int) -> str:
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -14,8 +16,6 @@ def _human_size(bytes: int) -> str:
             return f"{bytes:.1f}{unit}" if unit != "B" else f"{bytes}B"
         bytes /= 1024
     return f"{bytes:.1f}PB"
-
-from xyz_local.safety import classify_command, PermissionResult, PermissionTier, is_dangerous_write_path
 
 
 def normalize_path(path: str) -> Path:
@@ -188,7 +188,7 @@ def edit_file(path: str, old_string: str, new_string: str) -> dict[str, Any]:
         return {"error": str(e)}
 
 
-def write_file(path: str, content: str) -> dict[str, Any]:
+def write_file(path: str, content: str, force: bool = False) -> dict[str, Any]:
     p = normalize_path(path)
 
     if is_dangerous_write_path(str(p)):
@@ -202,9 +202,9 @@ def write_file(path: str, content: str) -> dict[str, Any]:
             "success": True,
             "path": str(p),
             "existed_before": existed,
-            "message": "File written successfully.",
+            "overwritten": existed,
+            "message": "File written successfully." if not existed else "File overwritten successfully.",
             "bytes_written": len(content),
-            "hint": "Strongly recommended: call list_directory on the parent folder now to verify the current state of files before writing more."
         }
     except Exception as e:
         return {"error": str(e)}
@@ -321,12 +321,13 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "write_file",
-            "description": "Create a new file or completely overwrite an existing one. Use for brand new files.",
+            "description": "Create a new file or overwrite an existing one. Use force=true to overwrite existing files.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "Path to write"},
                     "content": {"type": "string", "description": "Full new content"},
+                    "force": {"type": "boolean", "description": "Force overwrite if file exists", "default": False},
                 },
                 "required": ["path", "content"],
             },
