@@ -64,9 +64,12 @@ def list_directory(path: str = ".") -> dict[str, Any]:
     except PermissionError:
         return {"error": f"Permission denied: {path}"}
 
+    total_files = sum(1 for e in entries if e["type"] == "file")
+    total_dirs = sum(1 for e in entries if e["type"] == "dir")
     return {
         "path": str(p),
         "entries": entries[:100],
+        "summary": {"total": len(entries), "files": total_files, "dirs": total_dirs, "shown": min(len(entries), 100)},
     }
 
 
