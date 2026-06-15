@@ -71,10 +71,11 @@ def _ollama_connect_error() -> str:
 
 
 class OllamaClient:
-    def __init__(self, base_url: str = "http://localhost:11434", model: str = "qwen2.5-coder:latest"):
+    def __init__(self, base_url: str = "http://localhost:11434", model: str = "qwen2.5-coder:latest", timeout: int = 300):
         self.base_url = base_url.rstrip("/")
         self.model = model
-        self.client = httpx.AsyncClient(timeout=300.0)
+        self.timeout = timeout
+        self.client = httpx.AsyncClient(timeout=float(timeout))
 
     async def list_models(self) -> list[dict[str, Any]]:
         try:
