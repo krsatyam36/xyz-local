@@ -348,7 +348,7 @@ class Agent:
             return False
         if cmd == "/help":
             console.print(
-                "Available: /help, /undo, /memory, /clear, /stats, /retry, /model, /trust, /exit\n"
+                "Available: /help, /undo, /memory, /clear, /stats, /retry, /save, /model, /trust, /exit\n"
                 "Most work happens by just chatting normally."
             )
             return True
@@ -370,6 +370,10 @@ class Agent:
             console.print(f"  Tool calls: {tool_count}")
             console.print(f"  File writes: {len(self.memory.file_history)}")
             console.print(f"  Trust mode: {'ON' if self.trust_mode else 'OFF'}")
+            return True
+        if cmd == "/save":
+            self.memory.save(self.config.sessions_dir)
+            console.print(f"[green]Session saved:[/green] {self.memory.id}")
             return True
         if cmd == "/clear":
             self.memory.messages.clear()
