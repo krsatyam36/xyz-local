@@ -81,6 +81,20 @@ def read_file(path: str, offset: int = 1, limit: int = 200) -> dict[str, Any]:
         return {"error": f"Not a file: {path}"}
 
     try:
+        raw = p.read_bytes()
+        null_bytes = raw.count(b"\x00")
+        is_binary = null_bytes > 0 and null_bytes > len(raw) * 0.01
+        if is_binary:
+            ext = p.suffix.lower()
+            mime_hint = {
+                ".png": "PNG image", ".jpg": "JPEG image", ".jpeg": "JPEG image",
+                ".gif": "GIF image", ".pdf": "PDF document", ".zip": "ZIP archive",
+                ".tar": "TAR archive", ".gz": "GZip archive", ".mp3": "MP3 audio",
+                ".mp4": "MP4 video", ".so": "Shared object", ".dll": "DLL library",
+                ".pyc": "Compiled Python", ".whl": "Python wheel",
+            }
+            hint = mime_hint.get(ext, "binary")
+            return {"error": f"File appears to be a {hint} file ({null_bytes} null bytes detected). Use a shell command to inspect it.", "path": str(p), "binary": True}
         text = p.read_text(encoding="utf-8", errors="replace")
         lines = text.splitlines(keepends=True)
         start = max(0, offset - 1)
