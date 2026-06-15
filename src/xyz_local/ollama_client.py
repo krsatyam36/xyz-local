@@ -77,6 +77,14 @@ class OllamaClient:
         self.timeout = timeout
         self.client = httpx.AsyncClient(timeout=float(timeout))
 
+    async def health_check(self) -> bool:
+        """Check if Ollama is reachable and responsive."""
+        try:
+            resp = await self.client.get(f"{self.base_url}", timeout=5.0)
+            return resp.status_code < 500
+        except Exception:
+            return False
+
     async def list_models(self) -> list[dict[str, Any]]:
         try:
             resp = await self.client.get(f"{self.base_url}/api/tags")
