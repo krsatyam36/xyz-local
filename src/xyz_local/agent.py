@@ -252,9 +252,16 @@ class Agent:
             if not tool_calls:
                 if cleaned_response.strip():
                     console.print(cleaned_response)
-                self.memory.add_message("assistant", cleaned_response or full_response)
+                    self.memory.add_message("assistant", cleaned_response)
+                elif full_response.strip():
+                    console.print(full_response)
+                    self.memory.add_message("assistant", full_response)
+                else:
+                    fallback_msg = "I received an empty response from the model. Could you please rephrase your request?"
+                    console.print(f"[yellow]{fallback_msg}[/yellow]")
+                    self.memory.add_message("assistant", fallback_msg)
                 self.memory.save(self.config.sessions_dir)
-                return cleaned_response or full_response
+                return cleaned_response or full_response or fallback_msg
 
             cleaned_for_history = cleaned_response or full_response
             messages.append({"role": "assistant", "content": cleaned_for_history})
