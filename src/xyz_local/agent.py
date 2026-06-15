@@ -368,9 +368,22 @@ class Agent:
             return False
         if cmd == "/help":
             console.print(
-                "Available: /help, /undo, /memory, /clear, /stats, /retry, /save, /temp, /model, /trust, /exit\n"
+                "Available: /help, /undo, /memory, /clear, /stats, /retry, /save, /temp, /inspect, /model, /trust, /exit\n"
                 "Most work happens by just chatting normally."
             )
+            return True
+        if cmd == "/inspect":
+            tool_msgs = [m for m in self.memory.messages if m.get("role") == "tool"]
+            if not tool_msgs:
+                console.print("[yellow]No tool calls to inspect.[/yellow]")
+            else:
+                last_tool = tool_msgs[-1]
+                content = last_tool.get("content", "")
+                try:
+                    parsed = json.loads(content) if isinstance(content, str) else content
+                        console.print(json.dumps(parsed, indent=2))
+                except Exception:
+                    console.print(content[:2000])
             return True
         if cmd == "/stats":
             tool_count = sum(1 for m in self.memory.messages if m.get("role") == "tool")
