@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import stat
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -57,12 +58,14 @@ def list_directory(path: str = ".") -> dict[str, Any]:
             fstat = entry.stat()
             raw_size = fstat.st_size if entry.is_file() else None
             mode_str = stat.filemode(fstat.st_mode)
+            modified = datetime.fromtimestamp(fstat.st_mtime).isoformat()[:19]
             entries.append({
                 "name": entry.name,
                 "type": "dir" if is_dir else "file",
                 "size": raw_size,
                 "size_human": _human_size(raw_size) if raw_size is not None else None,
                 "mode": mode_str,
+                "modified": modified,
                 "icon": icon,
             })
     except PermissionError:
