@@ -357,7 +357,7 @@ class Agent:
             return False
         if cmd == "/help":
             console.print(
-                "Available: /help, /undo, /memory, /clear, /stats, /retry, /save, /model, /trust, /exit\n"
+                "Available: /help, /undo, /memory, /clear, /stats, /retry, /save, /temp, /model, /trust, /exit\n"
                 "Most work happens by just chatting normally."
             )
             return True
@@ -383,6 +383,21 @@ class Agent:
         if cmd == "/save":
             self.memory.save(self.config.sessions_dir)
             console.print(f"[green]Session saved:[/green] {self.memory.id}")
+            return True
+        if cmd.startswith("/temp"):
+            parts = cmd.split()
+            if len(parts) == 2:
+                try:
+                    new_temp = float(parts[1])
+                    if 0.0 <= new_temp <= 2.0:
+                        self.config.temperature = new_temp
+                        console.print(f"[green]Temperature set to {new_temp}[/green]")
+                    else:
+                        console.print("[yellow]Temperature must be between 0.0 and 2.0[/yellow]")
+                except ValueError:
+                    console.print(f"[yellow]Usage: /temp <value> (0.0-2.0)[/yellow]")
+            else:
+                console.print(f"[yellow]Current temperature: {self.config.temperature}[/yellow]")
             return True
         if cmd == "/clear":
             self.memory.messages.clear()
