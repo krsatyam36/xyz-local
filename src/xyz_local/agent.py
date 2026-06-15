@@ -328,9 +328,13 @@ class Agent:
             return False
         if cmd == "/help":
             console.print(
-                "Available: /help, /undo, /memory, /model, /trust, /exit\n"
+                "Available: /help, /undo, /memory, /clear, /model, /trust, /exit\n"
                 "Most work happens by just chatting normally."
             )
+            return True
+        if cmd == "/clear":
+            self.memory.messages.clear()
+            console.print("[green]Conversation context cleared.[/green]")
             return True
         if cmd == "/undo":
             restored = self.memory.undo_last_write()
