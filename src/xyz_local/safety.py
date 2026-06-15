@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Optional
 
 
@@ -72,10 +74,28 @@ def is_suspicious_pip_install(command: str) -> Optional[str]:
     return None
 
 
+def _load_custom_patterns() -> tuple[list[str], list[str], list[str]]:
+    config_path = Path.home() / ".xyz-local" / "config.json"
+    extra_auto: list[str] = []
+    extra_ask: list[str] = []
+    extra_deny: list[str] = []
+    if config_path.exists():
+        try:
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+            extra_auto = data.get("auto_approve_prefixes", [])
+            extra_ask = data.get("ask_prefixes", [])
+            extra_deny = data.get("deny_patterns", [])
+        except Exception:
+            pass
+    return extra_auto, extra_ask, extra_deny
+
+
 def classify_command(command: str, trust_mode: bool = False) -> PermissionResult:
     cmd = command.strip().lower()
 
-    for pattern in DENY_PATTERNS:
+    extra_auto, extra_ask, extra_deny = _load_custom_patterns()
+
+    for pattern in list(DENY_PATTERNS) + extra_deny:
         if re.search(pattern, cmd, re.IGNORECASE):
             return PermissionResult(
                 tier=PermissionTier.DENY,
@@ -98,7 +118,8 @@ def classify_command(command: str, trust_mode: bool = False) -> PermissionResult
             command=command,
         )
 
-    for prefix in AUTO_APPROVE_PREFIXES:
+    all_auto = list(AUTO_APPROVE_PREFIXES) + extra_auto
+    for prefix in all_auto:
         if cmd.startswith(prefix) or f"&& {prefix.strip()}" in cmd or f"; {prefix.strip()}" in cmd:
             return PermissionResult(
                 tier=PermissionTier.AUTO,
@@ -106,7 +127,8 @@ def classify_command(command: str, trust_mode: bool = False) -> PermissionResult
                 command=command,
             )
 
-    for prefix in ASK_PREFIXES:
+    all_ask = list(ASK_PREFIXES) + extra_ask
+    for prefix in all_ask:
         if cmd.startswith(prefix) or f"&& {prefix.strip()}" in cmd:
             return PermissionResult(
                 tier=PermissionTier.ASK,
