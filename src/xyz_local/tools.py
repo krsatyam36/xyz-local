@@ -221,13 +221,17 @@ def edit_file(path: str, old_string: str, new_string: str) -> dict[str, Any]:
                 "error": f"old_string appears {count} times. Make the old_string more unique (include more context)."
             }
 
+        backup_path = p.with_suffix(p.suffix + ".bak")
+        backup_path.write_text(original, encoding="utf-8")
+
         new_content = original.replace(old_string, new_string, 1)
         p.write_text(new_content, encoding="utf-8")
 
         return {
             "success": True,
             "path": str(p),
-            "message": "File edited successfully.",
+            "backup_path": str(backup_path),
+            "message": "File edited successfully. Backup saved.",
             "old_length": len(original),
             "new_length": len(new_content),
         }
@@ -244,13 +248,16 @@ def write_file(path: str, content: str, force: bool = False) -> dict[str, Any]:
     existed = p.exists()
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
+        if existed:
+            backup_path = p.with_suffix(p.suffix + ".bak")
+            backup_path.write_text(p.read_text(encoding="utf-8"), encoding="utf-8")
         p.write_text(content, encoding="utf-8")
         return {
             "success": True,
             "path": str(p),
             "existed_before": existed,
             "overwritten": existed,
-            "message": "File written successfully." if not existed else "File overwritten successfully.",
+            "message": "File written successfully." if not existed else "File overwritten successfully (backup saved).",
             "bytes_written": len(content),
         }
     except Exception as e:
