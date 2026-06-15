@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import sys
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -44,10 +46,21 @@ def chat(
     trust: bool = typer.Option(
         False, "--trust", help="Start in trust mode (fewer confirmations — use carefully)"
     ),
+    directory: Optional[str] = typer.Option(
+        None, "--dir", "-d", help="Working directory for the session (default: current dir)"
+    ),
 ):
     """Start an interactive coding session with a local Ollama model."""
     cfg = get_config()
     chosen_model = model or cfg.default_model
+
+    if directory:
+        target = Path(directory).expanduser().resolve()
+        if not target.exists():
+            console.print(f"[red]Directory does not exist:[/red] {target}")
+            raise typer.Exit(1)
+        os.chdir(target)
+        console.print(f"[dim]Changed working directory to: {target}[/dim]")
 
     console.print(Panel.fit(
         f"[bold cyan]xyz-local[/bold cyan] — Local AI Coding Agent (Ollama)\n"
