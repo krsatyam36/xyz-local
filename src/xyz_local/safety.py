@@ -51,6 +51,26 @@ DENY_PATTERNS = [
     r"eval\s+\$\(", r"exec\s+.*<",
 ]
 
+KNOWN_MALICIOUS_PIP = {
+    "pytort", "pyshater", "pycrypt", "cryptominer",
+    "requests",  # typo of requests
+    "pwdpy", "keylogger",
+}
+
+
+def is_suspicious_pip_install(command: str) -> Optional[str]:
+    if not command.startswith("pip install"):
+        return None
+    parts = command.split()
+    for part in parts[2:]:
+        part = part.strip("\"'")
+        pkg = part.split("==")[0].split(">")[0].split("<")[0].split("~")[0].split("!")[0]
+        pkg_lower = pkg.lower().replace("-", "").replace("_", "")
+        for mal in KNOWN_MALICIOUS_PIP:
+            if mal in pkg_lower or pkg_lower in mal:
+                return f"Package '{part}' matches known malicious pattern '{mal}'"
+    return None
+
 
 def classify_command(command: str, trust_mode: bool = False) -> PermissionResult:
     cmd = command.strip().lower()
@@ -62,6 +82,14 @@ def classify_command(command: str, trust_mode: bool = False) -> PermissionResult
                 reason="Command matches dangerous pattern",
                 command=command,
             )
+
+    pip_warning = is_suspicious_pip_install(cmd)
+    if pip_warning:
+        return PermissionResult(
+            tier=PermissionTier.DENY,
+            reason=pip_warning,
+            command=command,
+        )
 
     if trust_mode:
         return PermissionResult(
