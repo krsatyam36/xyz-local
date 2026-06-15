@@ -337,6 +337,8 @@ class Agent:
             import asyncio
             response = asyncio.run(self.process_turn(user_input))
 
+            self.memory.save(self.config.sessions_dir)
+
             if response and response.strip() and not any(response.startswith(p) for p in already_printed_prefixes):
                 if not response.startswith("→ Using tool"):
                     console.print(response)
