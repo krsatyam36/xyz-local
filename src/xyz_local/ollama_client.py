@@ -75,7 +75,26 @@ class OllamaClient:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
+        self.max_retries = 3
         self.client = httpx.AsyncClient(timeout=float(timeout))
+
+    async def _request_with_retry(self, method: str, url: str, **kwargs) -> httpx.Response:
+        last_error = None
+        for attempt in range(self.max_retries):
+            try:
+                resp = await self.client.request(method, url, **kwargs)
+                resp.raise_for_status()
+                return resp
+            except (httpx.ConnectError, httpx.TimeoutException) as e:
+                last_error = e
+                if attempt < self.max_retries - 1:
+                    import asyncio
+                    console.print(f"[dim]Connection attempt {attempt + 1} failed, retrying...[/dim]")
+                    await asyncio.sleep(1 * (attempt + 1))
+                continue
+            except httpx.HTTPStatusError:
+                raise
+        raise last_error or httpx.ConnectError("Max retries exceeded")
 
     async def health_check(self) -> bool:
         """Check if Ollama is reachable and responsive."""
@@ -96,8 +115,7 @@ class OllamaClient:
 
     async def list_models(self) -> list[dict[str, Any]]:
         try:
-            resp = await self.client.get(f"{self.base_url}/api/tags")
-            resp.raise_for_status()
+            resp = await self._request_with_retry("GET", f"{self.base_url}/api/tags")
             data = resp.json()
             return data.get("models", [])
         except (httpx.ConnectError, httpx.TimeoutException):
