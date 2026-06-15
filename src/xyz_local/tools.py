@@ -114,7 +114,7 @@ def read_file(path: str, offset: int = 1, limit: int = 200) -> dict[str, Any]:
         return {"error": str(e)}
 
 
-def grep_files(pattern: str, path: str = ".", include: str = "", ignore_case: bool = False, max_count: int = 50) -> dict[str, Any]:
+def grep_files(pattern: str, path: str = ".", include: str = "", ignore_case: bool = False, max_count: int = 50, context: int = 0) -> dict[str, Any]:
     import fnmatch
     import re
 
@@ -135,13 +135,21 @@ def grep_files(pattern: str, path: str = ".", include: str = "", ignore_case: bo
                 fpath = Path(dirpath) / fname
                 try:
                     text = fpath.read_text(encoding="utf-8", errors="ignore")
-                    for i, line in enumerate(text.splitlines(), 1):
+                    all_lines = text.splitlines()
+                    for i, line in enumerate(all_lines, 1):
                         if regex.search(line):
-                            matches.append({
+                            entry: dict[str, Any] = {
                                 "file": str(fpath.relative_to(root)),
                                 "line": i,
                                 "text": line.strip()[:200],
-                            })
+                            }
+                            if context > 0:
+                                start = max(0, i - 1 - context)
+                                end = min(len(all_lines), i + context)
+                                entry["context"] = "\n".join(
+                                    f"{j+1}:{all_lines[j]}" for j in range(start, end)
+                                )
+                            matches.append(entry)
                             if len(matches) >= max_count:
                                 return {"matches": matches, "truncated": True, "max_count": max_count}
                 except Exception:
@@ -296,6 +304,7 @@ TOOL_DEFINITIONS = [
                     "include": {"type": "string", "description": "Glob pattern to filter files, e.g. '*.py'", "default": ""},
                     "ignore_case": {"type": "boolean", "description": "Case-insensitive search", "default": False},
                     "max_count": {"type": "integer", "description": "Maximum matches to return", "default": 50},
+                    "context": {"type": "integer", "description": "Number of context lines around each match", "default": 0},
                 },
                 "required": ["pattern"],
             },
