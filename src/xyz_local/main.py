@@ -144,6 +144,7 @@ def sessions(
 
     table = Table(title="Previous Sessions")
     table.add_column("ID", style="cyan")
+    table.add_column("Name")
     table.add_column("Started")
     table.add_column("Model")
 
@@ -152,6 +153,7 @@ def sessions(
         meta = json.loads(f.read_text(encoding="utf-8"))
         table.add_row(
             f.stem,
+            meta.get("name", "")[:40],
             meta.get("created", "Unknown")[:19],
             meta.get("model", ""),
         )

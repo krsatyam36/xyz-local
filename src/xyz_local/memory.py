@@ -21,9 +21,17 @@ class FileChange:
 class SessionMemory:
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     created: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    name: str = ""
     messages: list[dict[str, Any]] = field(default_factory=list)
     file_history: list[FileChange] = field(default_factory=list)
     model: str = ""
+
+    def auto_name(self):
+        if self.name or not self.messages:
+            return
+        first = self.messages[0].get("content", "")
+        max_len = 50
+        self.name = first.strip()[:max_len].replace("\n", " ")
 
     def add_message(self, role: str, content: str):
         self.messages.append({"role": role, "content": content})
@@ -52,6 +60,7 @@ class SessionMemory:
     def save(self, sessions_dir: Path):
         sessions_dir.mkdir(parents=True, exist_ok=True)
         path = sessions_dir / f"{self.id}.json"
+        self.auto_name()
         data = asdict(self)
         data["file_history"] = [asdict(fc) for fc in self.file_history]
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
