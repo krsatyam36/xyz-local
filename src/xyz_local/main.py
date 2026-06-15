@@ -59,6 +59,17 @@ def chat(
 
     try:
         client = OllamaClient(base_url=cfg.ollama_base_url, model=chosen_model, timeout=cfg.ollama_timeout)
+    except Exception as e:
+        console.print(f"[red]Failed to create Ollama client:[/red] {e}")
+        raise typer.Exit(1)
+
+    import asyncio
+    healthy = asyncio.run(client.health_check())
+    if not healthy:
+        console.print("[red]Cannot reach Ollama.[/red] Make sure `ollama serve` is running.")
+        raise typer.Exit(1)
+
+    try:
         agent = Agent(
             client=client,
             config=cfg,
