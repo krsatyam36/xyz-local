@@ -18,6 +18,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
+from datetime import datetime
+
 from xyz_local.config import Config
 from xyz_local.memory import SessionMemory
 from xyz_local.ollama_client import OllamaClient
@@ -328,9 +330,28 @@ class Agent:
             return False
         if cmd == "/help":
             console.print(
-                "Available: /help, /undo, /memory, /clear, /model, /trust, /exit\n"
+                "Available: /help, /undo, /memory, /clear, /stats, /model, /trust, /exit\n"
                 "Most work happens by just chatting normally."
             )
+            return True
+        if cmd == "/stats":
+            tool_count = sum(1 for m in self.memory.messages if m.get("role") == "tool")
+            elapsed = datetime.utcnow().isoformat()
+            if self.memory.created:
+                try:
+                    start = datetime.fromisoformat(self.memory.created)
+                    delta = datetime.utcnow() - start
+                    elapsed = f"{delta.seconds // 3600}h {(delta.seconds // 60) % 60}m {delta.seconds % 60}s"
+                except Exception:
+                    pass
+            console.print("[bold]Session Statistics[/bold]")
+            console.print(f"  ID:         {self.memory.id}")
+            console.print(f"  Model:      {self.memory.model or 'N/A'}")
+            console.print(f"  Duration:   {elapsed}")
+            console.print(f"  Messages:   {len(self.memory.messages)}")
+            console.print(f"  Tool calls: {tool_count}")
+            console.print(f"  File writes: {len(self.memory.file_history)}")
+            console.print(f"  Trust mode: {'ON' if self.trust_mode else 'OFF'}")
             return True
         if cmd == "/clear":
             self.memory.messages.clear()
