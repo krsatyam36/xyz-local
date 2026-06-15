@@ -114,7 +114,7 @@ def read_file(path: str, offset: int = 1, limit: int = 200) -> dict[str, Any]:
         return {"error": str(e)}
 
 
-def grep_files(pattern: str, path: str = ".", include: str = "", ignore_case: bool = False) -> dict[str, Any]:
+def grep_files(pattern: str, path: str = ".", include: str = "", ignore_case: bool = False, max_count: int = 50) -> dict[str, Any]:
     import fnmatch
     import re
 
@@ -142,8 +142,8 @@ def grep_files(pattern: str, path: str = ".", include: str = "", ignore_case: bo
                                 "line": i,
                                 "text": line.strip()[:200],
                             })
-                            if len(matches) >= 50:
-                                return {"matches": matches, "truncated": True}
+                            if len(matches) >= max_count:
+                                return {"matches": matches, "truncated": True, "max_count": max_count}
                 except Exception:
                     pass
     except Exception as e:
@@ -295,6 +295,7 @@ TOOL_DEFINITIONS = [
                     "path": {"type": "string", "description": "Directory to search in (default: current dir)", "default": "."},
                     "include": {"type": "string", "description": "Glob pattern to filter files, e.g. '*.py'", "default": ""},
                     "ignore_case": {"type": "boolean", "description": "Case-insensitive search", "default": False},
+                    "max_count": {"type": "integer", "description": "Maximum matches to return", "default": 50},
                 },
                 "required": ["pattern"],
             },
