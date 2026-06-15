@@ -325,7 +325,7 @@ class Agent:
             "I am a local AI coding agent. I can:",
         )
         console.print(f"[dim]Working directory: {cwd}[/dim]")
-        console.print("[dim]Type your request. Use /help for commands, Ctrl+C to exit.[/dim]\n")
+        console.print("[dim]Type your request. Use /help for commands, Ctrl+C to exit, ↑ for history.[/dim]\n")
 
         while True:
             try:
