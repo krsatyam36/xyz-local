@@ -7,6 +7,14 @@ import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
+
+def _human_size(bytes: int) -> str:
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if bytes < 1024:
+            return f"{bytes:.1f}{unit}" if unit != "B" else f"{bytes}B"
+        bytes /= 1024
+    return f"{bytes:.1f}PB"
+
 from xyz_local.safety import classify_command, PermissionResult, PermissionTier, is_dangerous_write_path
 
 
@@ -45,10 +53,12 @@ def list_directory(path: str = ".") -> dict[str, Any]:
         for entry in sorted(p.iterdir()):
             is_dir = entry.is_dir()
             icon = "📁" if is_dir else type_icons.get(entry.suffix.lower(), "📄")
+            raw_size = entry.stat().st_size if entry.is_file() else None
             entries.append({
                 "name": entry.name,
                 "type": "dir" if is_dir else "file",
-                "size": entry.stat().st_size if entry.is_file() else None,
+                "size": raw_size,
+                "size_human": _human_size(raw_size) if raw_size is not None else None,
                 "icon": icon,
             })
     except PermissionError:
