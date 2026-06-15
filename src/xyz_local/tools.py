@@ -30,12 +30,26 @@ def list_directory(path: str = ".") -> dict[str, Any]:
         return {"error": f"Not a directory: {path}"}
 
     entries = []
+    type_icons = {
+        ".py": "🐍", ".js": "📜", ".ts": "📘", ".jsx": "⚛️", ".tsx": "⚛️",
+        ".json": "📋", ".yaml": "📋", ".yml": "📋", ".toml": "⚙️",
+        ".md": "📝", ".rst": "📝", ".txt": "📄",
+        ".html": "🌐", ".css": "🎨", ".scss": "🎨",
+        ".sh": "💻", ".bash": "💻", ".zsh": "💻",
+        ".pyc": "⚡", ".so": "🔧", ".dll": "🔧",
+        ".gitignore": "🙈", ".dockerignore": "🐳",
+        ".png": "🖼️", ".jpg": "🖼️", ".jpeg": "🖼️", ".svg": "🖼️",
+        ".pdf": "📕", ".zip": "📦", ".tar": "📦", ".gz": "📦",
+    }
     try:
         for entry in sorted(p.iterdir()):
+            is_dir = entry.is_dir()
+            icon = "📁" if is_dir else type_icons.get(entry.suffix.lower(), "📄")
             entries.append({
                 "name": entry.name,
-                "type": "dir" if entry.is_dir() else "file",
+                "type": "dir" if is_dir else "file",
                 "size": entry.stat().st_size if entry.is_file() else None,
+                "icon": icon,
             })
     except PermissionError:
         return {"error": f"Permission denied: {path}"}
