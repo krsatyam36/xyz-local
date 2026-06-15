@@ -95,6 +95,7 @@ class Agent:
         self.trust_mode = trust_mode
         self.memory = self._load_or_create_memory(resume_session)
         self.memory.model = client.model
+        self._last_user_input: str = ""
 
     def _load_or_create_memory(self, session_id: Optional[str]) -> SessionMemory:
         if session_id:
@@ -291,9 +292,20 @@ class Agent:
         self.memory.save(self.config.sessions_dir)
         return "I reached the maximum number of reasoning steps. Please ask me to continue or simplify the request."
 
+    def _remove_last_assistant_turn(self):
+        """Remove the last assistant turn and associated tool calls from memory."""
+        if len(self.memory.messages) < 2:
+            return
+        while self.memory.messages and self.memory.messages[-1].get("role") in ("assistant", "tool"):
+            self.memory.messages.pop()
+
     def run_interactive(self):
         """Main interactive loop."""
         cwd = Path.cwd()
+        already_printed_prefixes = (
+            "Hello! How can I help you with your code",
+            "I am a local AI coding agent. I can:",
+        )
         console.print(f"[dim]Working directory: {cwd}[/dim]")
         console.print("[dim]Type your request. Use /help for commands, Ctrl+C to exit.[/dim]\n")
 
@@ -307,18 +319,24 @@ class Agent:
                 continue
 
             if user_input.strip().startswith("/"):
+                if user_input.strip() == "/retry" and self._last_user_input:
+                    self._remove_last_assistant_turn()
+                    import asyncio
+                    response = asyncio.run(self.process_turn(self._last_user_input))
+                    if response and response.strip() and not any(response.startswith(p) for p in already_printed_prefixes):
+                        if not response.startswith("→ Using tool"):
+                            console.print(response)
+                    console.print()
+                    continue
                 if self._handle_slash_command(user_input.strip()):
                     continue
                 else:
                     break
 
+            self._last_user_input = user_input
             import asyncio
             response = asyncio.run(self.process_turn(user_input))
 
-            already_printed_prefixes = (
-                "Hello! How can I help you with your code",
-                "I am a local AI coding agent. I can:",
-            )
             if response and response.strip() and not any(response.startswith(p) for p in already_printed_prefixes):
                 if not response.startswith("→ Using tool"):
                     console.print(response)
@@ -330,7 +348,7 @@ class Agent:
             return False
         if cmd == "/help":
             console.print(
-                "Available: /help, /undo, /memory, /clear, /stats, /model, /trust, /exit\n"
+                "Available: /help, /undo, /memory, /clear, /stats, /retry, /model, /trust, /exit\n"
                 "Most work happens by just chatting normally."
             )
             return True
