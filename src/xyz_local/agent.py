@@ -336,6 +336,13 @@ class Agent:
             if not user_input.strip():
                 continue
 
+            while user_input.strip().endswith("\\"):
+                try:
+                    continuation = Prompt.ask("[dim]>[/dim]")
+                    user_input = user_input.rstrip("\\") + "\n" + continuation
+                except (EOFError, KeyboardInterrupt):
+                    break
+
             if user_input.strip().startswith("/"):
                 if user_input.strip() == "/retry" and self._last_user_input:
                     self._remove_last_assistant_turn()
