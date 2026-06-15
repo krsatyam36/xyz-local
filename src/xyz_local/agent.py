@@ -198,6 +198,7 @@ class Agent:
             self.memory.add_message("system", self._get_system_prompt())
 
         self.memory.add_message("user", user_input)
+        self.memory.auto_name()
 
         messages = self.memory.get_messages()
         turn = 0
