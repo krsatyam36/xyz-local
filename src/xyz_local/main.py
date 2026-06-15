@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from xyz_local import __version__
 from xyz_local.config import get_config
 from xyz_local.agent import Agent
 from xyz_local.ollama_client import OllamaClient
@@ -21,6 +22,15 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+
+
+@app.callback()
+def _main_callback(
+    version: bool = typer.Option(False, "--version", help="Show version and exit"),
+):
+    if version:
+        console.print(f"xyz-local v{__version__}")
+        raise typer.Exit()
 
 
 @app.command()
