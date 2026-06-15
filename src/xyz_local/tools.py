@@ -114,7 +114,7 @@ def read_file(path: str, offset: int = 1, limit: int = 200) -> dict[str, Any]:
         return {"error": str(e)}
 
 
-def grep_files(pattern: str, path: str = ".", include: str = "") -> dict[str, Any]:
+def grep_files(pattern: str, path: str = ".", include: str = "", ignore_case: bool = False) -> dict[str, Any]:
     import fnmatch
     import re
 
@@ -122,7 +122,8 @@ def grep_files(pattern: str, path: str = ".", include: str = "") -> dict[str, An
     if not root.exists():
         return {"error": f"Path does not exist: {path}"}
 
-    regex = re.compile(pattern)
+    flags = re.IGNORECASE if ignore_case else 0
+    regex = re.compile(pattern, flags)
     matches: list[dict[str, Any]] = []
 
     try:
@@ -293,6 +294,7 @@ TOOL_DEFINITIONS = [
                     "pattern": {"type": "string", "description": "Regex pattern to search for"},
                     "path": {"type": "string", "description": "Directory to search in (default: current dir)", "default": "."},
                     "include": {"type": "string", "description": "Glob pattern to filter files, e.g. '*.py'", "default": ""},
+                    "ignore_case": {"type": "boolean", "description": "Case-insensitive search", "default": False},
                 },
                 "required": ["pattern"],
             },
