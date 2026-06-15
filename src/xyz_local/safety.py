@@ -25,10 +25,14 @@ AUTO_APPROVE_PREFIXES = (
     "ls", "pwd", "cd ", "cat ", "head ", "tail ", "less ", "wc ",
     "grep ", "rg ", "find ", "which ", "echo ", "date ", "whoami ",
     "git status", "git log", "git diff", "git branch", "git show ",
+    "git stash", "git fetch", "git pull", "git remote",
     "python -m pytest", "pytest ", "python -c ", "python -m pyright",
     "ruff check", "ruff format --check", "mypy ", "black --check",
-    "npm run test", "npm test",
-    "mkdir ", "touch ", "cp ",
+    "npm run test", "npm test", "npm run ",
+    "mkdir ", "touch ", "cp ", "sort ", "uniq ", "comm ", "diff ",
+    "pip list", "pip freeze", "pip show",
+    "ollama list", "ollama ps", "ollama show",
+    "nvidia-smi", "free ", "df ", "du ", "uptime", "uname ",
 )
 
 ASK_PREFIXES = (
