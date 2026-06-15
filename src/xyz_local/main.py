@@ -46,6 +46,9 @@ def chat(
     trust: bool = typer.Option(
         False, "--trust", help="Start in trust mode (fewer confirmations — use carefully)"
     ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Enable verbose/debug logging"
+    ),
     directory: Optional[str] = typer.Option(
         None, "--dir", "-d", help="Working directory for the session (default: current dir)"
     ),
@@ -87,6 +90,7 @@ def chat(
             client=client,
             config=cfg,
             trust_mode=trust,
+            verbose=verbose,
             resume_session=session,
         )
         agent.run_interactive()

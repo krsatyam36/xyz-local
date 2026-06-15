@@ -88,11 +88,13 @@ class Agent:
         client: OllamaClient,
         config: Config,
         trust_mode: bool = False,
+        verbose: bool = False,
         resume_session: Optional[str] = None,
     ):
         self.client = client
         self.config = config
         self.trust_mode = trust_mode
+        self.verbose = verbose
         self.memory = self._load_or_create_memory(resume_session)
         self.memory.model = client.model
         self._last_user_input: str = ""
@@ -189,6 +191,8 @@ class Agent:
         # Preprocess "xyz-local project" references
         original_input = user_input
         lower_input = user_input.lower()
+        if self.verbose and original_input != user_input:
+            console.print(f"[dim]Preprocessed: {original_input!r} → {user_input!r}[/dim]")
         if ("xyz-local" in lower_input and any(kw in lower_input for kw in ["project", "folder", "directory", "read", "explore", "summarize"])) or lower_input.startswith("read the "):
             user_input = user_input.replace("xyz-local", "current").replace("./xyz-local", ".").replace("the xyz-local project", "the current project (we are inside it)")
             if "list" not in lower_input and "read_file" not in lower_input and "read the" in lower_input:
@@ -206,6 +210,8 @@ class Agent:
         while turn < self.config.max_turns:
             turn += 1
 
+            if self.verbose:
+                console.print(f"[dim]Turn {turn}/{self.config.max_turns} - Messages: {len(messages)}[/dim]")
             console.print("[dim]Thinking...[/dim]", end="")
 
             full_response = ""
