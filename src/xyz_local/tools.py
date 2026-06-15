@@ -100,11 +100,14 @@ def read_file(path: str, offset: int = 1, limit: int = 200) -> dict[str, Any]:
         start = max(0, offset - 1)
         end = start + limit
         selected = lines[start:end]
+        if start >= len(lines):
+            return {"error": f"Offset {offset} is beyond file length ({len(lines)} lines)", "total_lines": len(lines)}
         return {
             "path": str(p),
             "offset": offset,
             "limit": limit,
             "total_lines": len(lines),
+            "lines_returned": len(selected),
             "content": "".join(selected),
         }
     except Exception as e:
