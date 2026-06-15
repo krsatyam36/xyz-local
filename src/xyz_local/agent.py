@@ -229,10 +229,14 @@ class Agent:
             full_response = ""
             tool_calls = []
 
+            extra_options = {}
+            if self.config.num_ctx > 0:
+                extra_options["num_ctx"] = self.config.num_ctx
             async for event in self.client.chat(
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
                 temperature=self.config.temperature,
+                extra_options=extra_options,
             ):
                 if event["type"] == "token":
                     full_response += event.get("data", "")

@@ -131,12 +131,16 @@ class OllamaClient:
         tools: Optional[list[dict[str, Any]]] = None,
         stream: bool = True,
         temperature: float = 0.1,
+        extra_options: Optional[dict[str, Any]] = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
+        options: dict[str, Any] = {"temperature": temperature}
+        if extra_options:
+            options.update(extra_options)
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "stream": stream,
-            "options": {"temperature": temperature},
+            "options": options,
         }
         if tools:
             payload["tools"] = tools

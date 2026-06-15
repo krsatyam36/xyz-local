@@ -20,6 +20,7 @@ class Config:
     max_turns: int = 15   # slightly higher for local models that need more steps
     temperature: float = 0.1  # low temperature for deterministic tool calling
     ollama_timeout: int = 300  # seconds for Ollama API calls
+    num_ctx: int = 0  # context window size (0 = model default)
 
     def __post_init__(self):
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
@@ -45,6 +46,7 @@ def get_config() -> Config:
     cfg.max_turns = int(file_cfg.get("max_turns", cfg.max_turns))
     cfg.temperature = float(file_cfg.get("temperature", cfg.temperature))
     cfg.ollama_timeout = int(file_cfg.get("ollama_timeout", cfg.ollama_timeout))
+    cfg.num_ctx = int(file_cfg.get("num_ctx", cfg.num_ctx))
     if "ollama_base_url" in file_cfg:
         cfg.ollama_base_url = file_cfg["ollama_base_url"].rstrip("/")
 
