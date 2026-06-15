@@ -58,7 +58,7 @@ def chat(
     ))
 
     try:
-        client = OllamaClient(base_url=cfg.ollama_base_url, model=chosen_model)
+        client = OllamaClient(base_url=cfg.ollama_base_url, model=chosen_model, timeout=cfg.ollama_timeout)
         agent = Agent(
             client=client,
             config=cfg,

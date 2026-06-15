@@ -213,7 +213,7 @@ class Agent:
             async for event in self.client.chat(
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
-                temperature=0.1,
+                temperature=self.config.temperature,
             ):
                 if event["type"] == "token":
                     full_response += event.get("data", "")
