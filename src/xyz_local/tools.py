@@ -121,6 +121,33 @@ def read_file(path: str, offset: int = 1, limit: int = 200) -> dict[str, Any]:
         return {"error": str(e)}
 
 
+def _load_gitignore(root: Path) -> list[str]:
+    gitignore_patterns = []
+    gitignore_path = root / ".gitignore"
+    if gitignore_path.exists():
+        for line in gitignore_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                gitignore_patterns.append(line)
+    return gitignore_patterns
+
+
+def _is_ignored(path: Path, root: Path, gitignore_patterns: list[str]) -> bool:
+    import fnmatch
+    try:
+        rel = str(path.relative_to(root))
+    except ValueError:
+        return False
+    for pattern in gitignore_patterns:
+        if pattern.startswith("/"):
+            if fnmatch.fnmatch(rel, pattern.lstrip("/")):
+                return True
+        else:
+            if fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(rel, f"**/{pattern}"):
+                return True
+    return False
+
+
 def grep_files(pattern: str, path: str = ".", include: str = "", ignore_case: bool = False, max_count: int = 50, context: int = 0) -> dict[str, Any]:
     import fnmatch
     import re
@@ -132,14 +159,19 @@ def grep_files(pattern: str, path: str = ".", include: str = "", ignore_case: bo
     flags = re.IGNORECASE if ignore_case else 0
     regex = re.compile(pattern, flags)
     matches: list[dict[str, Any]] = []
+    gitignore_patterns = _load_gitignore(root)
 
     try:
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = [d for d in dirnames if d not in {".git", "__pycache__", "node_modules", ".venv", "venv"}]
+            if gitignore_patterns:
+                dirnames[:] = [d for d in dirnames if not _is_ignored(Path(dirpath) / d, root, gitignore_patterns)]
             for fname in filenames:
                 if include and not fnmatch.fnmatch(fname, include):
                     continue
                 fpath = Path(dirpath) / fname
+                if gitignore_patterns and _is_ignored(fpath, root, gitignore_patterns):
+                    continue
                 try:
                     text = fpath.read_text(encoding="utf-8", errors="ignore")
                     all_lines = text.splitlines()
