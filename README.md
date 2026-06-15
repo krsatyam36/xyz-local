@@ -2,7 +2,7 @@
 
 # XYZ — Open Source AI Coding Agent!
 
-**v0.4.0** — *An open source AI coding agent for the terminal, inspired by OpenCode and Claude Code*
+**v1.0.0** — *An open source AI coding agent for the terminal, inspired by OpenCode and Claude Code*
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
 [![NVIDIA NIM](https://img.shields.io/badge/NVIDIA_NIM-API-76B900?style=flat&logo=nvidia&logoColor=white)](https://build.nvidia.com)
