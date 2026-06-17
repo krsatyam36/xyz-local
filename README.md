@@ -2,7 +2,7 @@
 
 # xyz-local — Fully Local AI Coding Agent
 
-**v1.0.0** — *An open source AI coding agent for the terminal, powered by Ollama*
+**v2.0.0** — *An open source AI coding agent for the terminal, powered by Ollama*
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
 [![Ollama](https://img.shields.io/badge/Ollama-Local-4B8BBE?style=flat&logo=ollama&logoColor=white)](https://ollama.com)
