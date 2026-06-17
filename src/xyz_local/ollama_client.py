@@ -27,34 +27,47 @@ def _parse_tool_call_fallback(text: str) -> list[dict[str, Any]]:
             pass
 
     if not tool_calls:
-        try:
-            start = text.find("{")
-            if start != -1:
-                depth = 0
-                end = start
-                for i, ch in enumerate(text[start:], start):
-                    if ch == "{":
-                        depth += 1
-                    elif ch == "}":
-                        depth -= 1
-                        if depth == 0:
-                            end = i + 1
-                            break
-                candidate = text[start:end]
-                obj = json.loads(candidate)
-                if isinstance(obj, dict) and "name" in obj:
-                    tool_calls.append(obj)
-        except Exception:
-            pass
-
-    if not tool_calls:
-        for match in re.finditer(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL):
+        # Scan the whole text for every balanced {...} object and keep the ones
+        # that look like tool calls. Handles models that emit several inline
+        # JSON tool calls in a single response (e.g. write_file + execute_shell).
+        i = 0
+        n = len(text)
+        while i < n:
+            if text[i] != "{":
+                i += 1
+                continue
+            depth = 0
+            in_str = False
+            escape = False
+            end = -1
+            for j in range(i, n):
+                ch = text[j]
+                if in_str:
+                    if escape:
+                        escape = False
+                    elif ch == "\\":
+                        escape = True
+                    elif ch == '"':
+                        in_str = False
+                    continue
+                if ch == '"':
+                    in_str = True
+                elif ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = j + 1
+                        break
+            if end == -1:
+                break
             try:
-                obj = json.loads(match.group(1))
+                obj = json.loads(text[i:end])
                 if isinstance(obj, dict) and "name" in obj:
                     tool_calls.append(obj)
             except Exception:
                 pass
+            i = end
 
     return tool_calls
 
@@ -76,7 +89,27 @@ class OllamaClient:
         self.model = model
         self.timeout = timeout
         self.max_retries = 3
-        self.client = httpx.AsyncClient(timeout=float(timeout))
+        self._client: Optional[httpx.AsyncClient] = None
+        self._client_loop: Any = None
+
+    @property
+    def client(self) -> httpx.AsyncClient:
+        """Return an httpx client bound to the current event loop.
+
+        ``asyncio.run()`` creates a fresh event loop on every call (e.g. each
+        interactive turn or slash command). An ``AsyncClient`` is tied to the
+        loop it was created on, so we recreate it whenever the loop changes or
+        the client has been closed.
+        """
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if self._client is None or self._client.is_closed or self._client_loop is not loop:
+            self._client = httpx.AsyncClient(timeout=float(self.timeout))
+            self._client_loop = loop
+        return self._client
 
     async def _request_with_retry(self, method: str, url: str, **kwargs) -> httpx.Response:
         last_error = None
@@ -216,4 +249,5 @@ class OllamaClient:
             yield {"type": "error", "data": str(e)}
 
     async def close(self):
-        await self.client.aclose()
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()

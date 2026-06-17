@@ -47,15 +47,22 @@ ASK_PREFIXES = (
 )
 
 DENY_PATTERNS = [
-    r"rm\s+-rf\s+/", r"rm\s+-rf\s+~",
+    # Deletion of root or "/*" — catastrophic.
+    r"rm\s+-rf\s+/(\s|$|\*)",
+    # Deletion of a system top-level dir or anything inside it (e.g. /etc, /usr/local).
+    r"rm\s+-rf\s+/(etc|usr|bin|sbin|boot|sys|proc|dev|lib|lib64|var|opt|root|home)(/|\s|$|\*)",
+    # Deletion of the entire home directory.
+    r"rm\s+-rf\s+~(\s|$|/?\*)", r"rm\s+-rf\s+\$HOME(\s|$|/?\*)",
     r":\(\)\{.*\}", r"sudo\s+rm", r"shutdown", r"reboot", r"mkfs", r"dd\s+if=",
     r"curl\s+.*\|\s*(bash|sh)", r"wget\s+.*\|\s*(bash|sh)",
     r"eval\s+\$\(", r"exec\s+.*<",
 ]
 
+# Known typo-squatting / malicious package names. NOTE: do not put legitimate
+# package names here — entries are matched as substrings of the requested package.
 KNOWN_MALICIOUS_PIP = {
     "pytort", "pyshater", "pycrypt", "cryptominer",
-    "requests",  # typo of requests
+    "reqeusts", "reqests", "requsts", "requestss",  # typo-squats of requests
     "pwdpy", "keylogger",
 }
 
@@ -68,8 +75,10 @@ def is_suspicious_pip_install(command: str) -> Optional[str]:
         part = part.strip("\"'")
         pkg = part.split("==")[0].split(">")[0].split("<")[0].split("~")[0].split("!")[0]
         pkg_lower = pkg.lower().replace("-", "").replace("_", "")
+        if not pkg_lower or pkg_lower.startswith("-"):
+            continue
         for mal in KNOWN_MALICIOUS_PIP:
-            if mal in pkg_lower or pkg_lower in mal:
+            if mal in pkg_lower:
                 return f"Package '{part}' matches known malicious pattern '{mal}'"
     return None
 

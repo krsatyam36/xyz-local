@@ -41,42 +41,41 @@ def _sanitize_assistant_text(text: str) -> str:
     return text
 
 
-SYSTEM_PROMPT = """You are xyz-local, a careful and highly competent local AI coding assistant running entirely on the user's machine via Ollama.
+SYSTEM_PROMPT = """You are xyz-local, a powerful AI coding assistant running on the user's machine via Ollama.
 
-**HIGHEST PRIORITY RULE - GREETINGS AND SMALL TALK:**
-If the user says something like "Hello", "Hi", "Hey", "Hello there", or any simple greeting or conversational opener, respond with a short, natural, friendly reply (e.g. "Hello! How can I help you today?"). 
-DO NOT call get_cwd, list_directory, read_file, or ANY tool for greetings. Just answer directly.
+You have tools to read files, write files, edit code, run shell commands, search codebases, and manage directories. Use them freely and chain them together to complete tasks fully.
 
-**CURRENT PROJECT CONTEXT (VERY IMPORTANT):**
-You are currently running *inside* the xyz-local project itself.
-- The current working directory shown below **is** the root of the xyz-local project.
-- When the user says "Read the xyz-local project", "explore the xyz-local project", "summarize the project", or similar, they mean **explore the current directory**.
-- Always use path "." (or the current working directory) for the root of xyz-local. Never try to list a subdirectory literally called "xyz-local" unless the user is clearly asking for a nested folder.
+**HOW TO WORK:**
 
-**TOOL USE RULE:**
-Only call tools when the user's request clearly requires action.
-- For a simple standalone request like "write a code to add 2 numbers", "write a hello world", or any self-contained small script:
-  - Immediately use write_file with a good filename (e.g. add_two_numbers.py) in the current working directory.
-  - Put complete, working code with comments and example usage.
-  - After the write_file succeeds, give a short confirmation like "Done, created add_two_numbers.py with the code." and stop. Do not list_directory, do not read any files.
-- Only explore (list_directory, read_file, get_cwd) when the request is about the existing project, debugging existing code, or the user explicitly asks to look at files. Use "." for the project root.
+For fixing bugs, adding features, or modifying code:
+1. Use grep_files to locate the relevant code
+2. Use read_file to read the files you need to understand
+3. Use edit_file for precise targeted changes, or write_file for new files/full rewrites
+4. Use execute_shell to run tests, linters, or the program to verify the change works
+5. Fix any issues found and confirm the task is done
 
-When you must use a tool:
-- Output the function call in the exact JSON format with no extra text, no ```json blocks, no explanations before or after it in that response.
+For writing new scripts or files:
+1. Use write_file immediately with complete, working code
 
-**AFTER RECEIVING TOOL RESULTS:**
-Analyze the result and either:
-- Call the next needed tool (but avoid repeating the same exploration tools), or
-- Give a short, direct final answer to the user.
-Do not keep calling list_directory + read_file(README.md) in loops.
+For exploring or understanding a codebase:
+1. Use list_directory to see the structure
+2. Use grep_files to find functions, classes, or patterns
+3. Use read_file to read the relevant sections
+4. Explain what you found
 
-**OTHER RULES:**
-- Be concise and action-oriented.
-- Never narrate your tool use in text.
-- For code tasks, put real complete code in write_file calls.
+**TOOL RULES:**
+- Always read_file before editing — never edit blind
+- Use grep_files to find symbols before diving into files
+- Use execute_shell freely: run tests, git status, install packages, build, etc.
+- edit_file requires exact old_string — if unsure, read the file first
+- Chain multiple tool calls to finish tasks completely — don't stop halfway
+- After changing code, run the relevant test or command to confirm it works
 
-Available tools:
-{tool_list}
+**BEHAVIOR:**
+- Be direct and action-oriented — do the task, don't describe what you'll do
+- Don't ask for permission unless about to do something destructive
+- Call tools without narrating — just call them and act on the results
+- Keep working until the task is fully done
 
 Current working directory: {cwd}
 """
@@ -98,7 +97,6 @@ class Agent:
         self.memory = self._load_or_create_memory(resume_session)
         self.memory.model = client.model
         self._last_user_input: str = ""
-        self._response_cache: dict[str, str] = {}
 
     def _load_or_create_memory(self, session_id: Optional[str]) -> SessionMemory:
         if session_id:
@@ -110,12 +108,7 @@ class Agent:
         return mem
 
     def _get_system_prompt(self) -> str:
-        tool_list = "\n".join(
-            f"- {t['function']['name']}: {t['function']['description']}"
-            for t in TOOL_DEFINITIONS
-        )
-        cwd = str(Path.cwd())
-        return SYSTEM_PROMPT.format(tool_list=tool_list, cwd=cwd)
+        return SYSTEM_PROMPT.format(cwd=str(Path.cwd()))
 
     def _execute_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         if name not in TOOL_REGISTRY:
@@ -158,46 +151,33 @@ class Agent:
         from xyz_local.safety import is_dangerous_write_path
         return is_dangerous_write_path(path)
 
+    def _args_preview(self, name: str, args: dict) -> str:
+        """Compact display of tool arguments for the console."""
+        if name == "read_file":
+            path = args.get("path", "")
+            offset = args.get("offset", 1)
+            suffix = f":{offset}" if offset != 1 else ""
+            return f" {path}{suffix}"
+        elif name in ("write_file", "create_directory"):
+            return f" {args.get('path', '')}"
+        elif name == "edit_file":
+            path = args.get("path", "")
+            old = args.get("old_string", "")[:40].replace("\n", "↵")
+            return f" {path} [{old}…]"
+        elif name == "execute_shell":
+            cmd = args.get("command", "")[:70]
+            return f" `{cmd}`"
+        elif name == "grep_files":
+            pat = args.get("pattern", "")
+            path = args.get("path", ".")
+            return f" /{pat}/ in {path}"
+        elif name in ("list_directory", "find_files"):
+            return f" {args.get('path', '.')}"
+        return ""
+
     async def process_turn(self, user_input: str) -> str:
-        """Process one user message and return final assistant text."""
-        # Greeting guard
-        greeting_phrases = {"hello", "hi", "hey", "hello there", "hi there", "hey there", 
-                            "good morning", "good afternoon", "good evening"}
-        cleaned_input = user_input.strip().lower().rstrip("!?., ")
-        if cleaned_input in greeting_phrases or (len(cleaned_input) < 30 and any(g in cleaned_input for g in greeting_phrases)):
-            greeting_reply = "Hello! How can I help you with your code or project today?"
-            console.print(greeting_reply)
-            self.memory.add_message("user", user_input)
-            self.memory.add_message("assistant", greeting_reply)
-            self.memory.save(self.config.sessions_dir)
-            return greeting_reply
-
-        # Meta / capability guard
-        meta_phrases = ["what can you do", "what do you do", "your capabilities", "how do you work", "what are you", "help", "commands", "features"]
-        if any(p in cleaned_input for p in meta_phrases) or cleaned_input in {"what can you do?", "what can you do"}:
-            meta_reply = (
-                "I am a local AI coding agent. I can:\n"
-                "- Read, edit, and create files in your project\n"
-                "- Run shell commands and tests (with safety confirmations)\n"
-                "- Explore code with grep and directory listing\n"
-                "- Help you build features, fix bugs, refactor, write tests, etc.\n\n"
-                "Just describe what you want to build or change. I work best with clear, specific requests."
-            )
-            console.print(meta_reply)
-            self.memory.add_message("user", user_input)
-            self.memory.add_message("assistant", meta_reply)
-            self.memory.save(self.config.sessions_dir)
-            return meta_reply
-
-        # Preprocess "xyz-local project" references
-        original_input = user_input
-        lower_input = user_input.lower()
-        if self.verbose and original_input != user_input:
-            console.print(f"[dim]Preprocessed: {original_input!r} → {user_input!r}[/dim]")
-        if ("xyz-local" in lower_input and any(kw in lower_input for kw in ["project", "folder", "directory", "read", "explore", "summarize"])) or lower_input.startswith("read the "):
-            user_input = user_input.replace("xyz-local", "current").replace("./xyz-local", ".").replace("the xyz-local project", "the current project (we are inside it)")
-            if "list" not in lower_input and "read_file" not in lower_input and "read the" in lower_input:
-                user_input = user_input.replace("read the ", "explore/summarize the content of ").strip() + ". Use path='.' for the project root."
+        """Process one user message, running the agentic tool loop until done."""
+        import sys
 
         if not self.memory.messages:
             self.memory.add_message("system", self._get_system_prompt())
@@ -205,83 +185,107 @@ class Agent:
         self.memory.add_message("user", user_input)
         self.memory.auto_name()
 
-        if self._response_cache and original_input in self._response_cache:
-            cached = self._response_cache[original_input]
-            console.print(cached)
-            self.memory.add_message("assistant", cached)
-            self.memory.save(self.config.sessions_dir)
-            return cached
-
-        messages = self.memory.get_messages()
         turn = 0
 
         while turn < self.config.max_turns:
             turn += 1
 
-            total_chars = sum(len(m.get("content", "")) for m in messages)
+            total_chars = sum(len(str(m.get("content", ""))) for m in self.memory.messages)
             if total_chars > 30000:
-                console.print(f"[yellow]Warning: Large context (~{total_chars} chars). Consider /clear to reset.[/yellow]")
+                console.print(f"[yellow]Context ~{total_chars} chars — use /clear if responses slow down[/yellow]")
 
             if self.verbose:
-                console.print(f"[dim]Turn {turn}/{self.config.max_turns} - Messages: {len(messages)}[/dim]")
-            console.print("[dim]Thinking...[/dim]", end="")
+                console.print(f"[dim]Turn {turn}/{self.config.max_turns} · {len(self.memory.messages)} messages[/dim]")
 
             full_response = ""
-            tool_calls = []
+            native_tool_calls: list = []
+            # Streaming state: None = undecided, True = streaming prose live,
+            # False = suppressed (looks like an inline tool-call JSON blob).
+            stream_live: Optional[bool] = None
+            printed_anything = False
 
             extra_options = {}
             if self.config.num_ctx > 0:
                 extra_options["num_ctx"] = self.config.num_ctx
+
             async for event in self.client.chat(
-                messages=messages,
+                messages=self.memory.messages,
                 tools=TOOL_DEFINITIONS,
                 temperature=self.config.temperature,
                 extra_options=extra_options,
             ):
                 if event["type"] == "token":
-                    full_response += event.get("data", "")
+                    token = event.get("data", "")
+                    full_response += token
+                    # Decide once, on the first non-whitespace content, whether this
+                    # is prose (stream it) or an inline tool call (hide the raw JSON).
+                    if stream_live is None:
+                        stripped = full_response.lstrip()
+                        if stripped:
+                            stream_live = not (
+                                stripped[0] == "{"
+                                or stripped.startswith("```")
+                                or stripped.lower().startswith("<tool_call")
+                            )
+                            if stream_live:
+                                sys.stdout.write(stripped)
+                                sys.stdout.flush()
+                                printed_anything = True
+                    elif stream_live:
+                        sys.stdout.write(token)
+                        sys.stdout.flush()
+                        printed_anything = True
                 elif event["type"] == "tool_call":
-                    tool_calls.append(event["data"])
+                    native_tool_calls.append(event["data"])
                 elif event["type"] == "done":
                     if event.get("tool_calls"):
-                        tool_calls = event["tool_calls"]
+                        native_tool_calls = event["tool_calls"]
                     break
                 elif event["type"] == "error":
-                    console.print("\r" + " " * 20 + "\r", end="")
-                    err = event['data']
+                    if printed_anything:
+                        sys.stdout.write("\n")
+                        sys.stdout.flush()
+                    err = event["data"]
                     if err == "MODEL_DOES_NOT_SUPPORT_TOOLS":
-                        console.print("[yellow]This model does not support tool calling well.[/yellow]")
-                        console.print("xyz-local works best with Qwen2.5-Coder models.")
-                        console.print("Try:  xyz-local chat -m qwen2.5-coder:latest --trust")
-                        return "Model does not support tools. Please switch to a coder model (e.g. qwen2.5-coder:latest)."
+                        msg = (
+                            "This model doesn't support tool calling. "
+                            "Try: xyz-local chat -m qwen2.5-coder:latest"
+                        )
+                        console.print(f"[red]{msg}[/red]")
+                        return msg
                     console.print(f"[red]Error from model:[/red] {err}")
                     return f"Error: {err}"
 
-            console.print("\r" + " " * 20 + "\r", end="")
-
-            cleaned_response = _sanitize_assistant_text(full_response)
-
-            if not tool_calls and full_response:
+            # Fallback: parse tool calls out of streamed text if API didn't return them natively
+            if not native_tool_calls and full_response:
                 from xyz_local.ollama_client import _parse_tool_call_fallback
-                tool_calls = _parse_tool_call_fallback(full_response)
+                native_tool_calls = _parse_tool_call_fallback(full_response)
 
-            if not tool_calls:
-                result = cleaned_response or full_response or ""
-                if result:
-                    self._response_cache[original_input] = result
-                    console.print(cleaned_response if cleaned_response.strip() else full_response)
-                    self.memory.add_message("assistant", cleaned_response if cleaned_response.strip() else full_response)
-                else:
-                    result = "I received an empty response from the model. Could you please rephrase your request?"
-                    console.print(f"[yellow]{result}[/yellow]")
-                    self.memory.add_message("assistant", result)
+            clean_response = _sanitize_assistant_text(full_response)
+
+            if not native_tool_calls:
+                # Pure text response — done
+                if printed_anything:
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                final = clean_response or full_response or ""
+                if not final:
+                    final = "No response from model. Please rephrase your request."
+                    console.print(f"[yellow]{final}[/yellow]")
+                elif not printed_anything:
+                    console.print(final)
+                self.memory.add_message("assistant", final)
                 self.memory.save(self.config.sessions_dir)
-                return result
+                return final
 
-            cleaned_for_history = cleaned_response or full_response
-            messages.append({"role": "assistant", "content": cleaned_for_history})
+            # Has tool calls — ensure newline after any streamed reasoning text
+            if printed_anything:
+                sys.stdout.write("\n")
+                sys.stdout.flush()
 
-            for tc in tool_calls:
+            # Normalize tool calls to a consistent format
+            normalized_tcs = []
+            for tc in native_tool_calls:
                 name = tc.get("function", {}).get("name") or tc.get("name", "")
                 args = tc.get("function", {}).get("arguments") or tc.get("arguments", {})
                 if isinstance(args, str):
@@ -289,37 +293,52 @@ class Agent:
                         args = json.loads(args)
                     except Exception:
                         args = {}
+                if name:
+                    normalized_tcs.append({"function": {"name": name, "arguments": args}})
 
-                if not name:
-                    continue
+            # Store assistant message with tool_calls field so the model sees proper history
+            self.memory.messages.append({
+                "role": "assistant",
+                "content": clean_response or "",
+                "tool_calls": normalized_tcs,
+            })
 
-                console.print(f"[cyan]→[/cyan] Using tool: [bold]{name}[/bold]")
+            # Execute each tool and append results
+            for tc in normalized_tcs:
+                name = tc["function"]["name"]
+                args = tc["function"]["arguments"]
+
+                console.print(f"[cyan]⚙[/cyan] [bold]{name}[/bold]{self._args_preview(name, args)}")
 
                 result = self._execute_tool(name, args)
 
-                if name in ("edit_file", "write_file") and result.get("success"):
-                    path = args.get("path")
-                    if path and Path(path).exists():
-                        pass
-
-                tool_result_msg = {
+                self.memory.messages.append({
                     "role": "tool",
                     "content": json.dumps(result, ensure_ascii=False),
-                }
-                messages.append(tool_result_msg)
+                })
 
                 if "error" in result:
-                    console.print(f"  [red]Tool error:[/red] {result['error']}")
+                    console.print(f"  [red]✗[/red] {result['error'][:300]}")
                 elif name == "execute_shell":
-                    exit_code = result.get("exit_code")
-                    stdout = (result.get("stdout") or "")[:300]
-                    console.print(f"  exit={exit_code}  stdout preview:\n{stdout}")
-
-            messages = self.memory.get_messages() + messages[-len(tool_calls)*2:]
+                    exit_code = result.get("exit_code", "?")
+                    stdout = result.get("stdout", "")
+                    stderr = result.get("stderr", "")
+                    output = stdout or stderr
+                    if output:
+                        lines = output.strip().split("\n")
+                        preview = "\n".join(f"  {l}" for l in lines[:20])
+                        console.print(f"  [dim]exit={exit_code}[/dim]\n{preview}")
+                        if len(lines) > 20:
+                            console.print(f"  [dim]... {len(lines) - 20} more lines[/dim]")
+                    else:
+                        console.print(f"  [dim]exit={exit_code}[/dim]")
+                elif name in ("write_file", "edit_file", "create_directory"):
+                    msg = result.get("message", "done")
+                    console.print(f"  [green]✓[/green] {msg}")
 
         self.memory.add_message("assistant", "(max turns reached)")
         self.memory.save(self.config.sessions_dir)
-        return "I reached the maximum number of reasoning steps. Please ask me to continue or simplify the request."
+        return "Reached maximum reasoning steps. Please ask me to continue or simplify the request."
 
     def _remove_last_assistant_turn(self):
         """Remove the last assistant turn and associated tool calls from memory."""
@@ -330,13 +349,8 @@ class Agent:
 
     def run_interactive(self):
         """Main interactive loop."""
-        cwd = Path.cwd()
-        already_printed_prefixes = (
-            "Hello! How can I help you with your code",
-            "I am a local AI coding agent. I can:",
-        )
-        console.print(f"[dim]Working directory: {cwd}[/dim]")
-        console.print("[dim]Type your request. Use /help for commands, Ctrl+C to exit, ↑ for history.[/dim]\n")
+        console.print(f"[dim]Working directory: {Path.cwd()}[/dim]")
+        console.print("[dim]Type your request. Use /help for commands, Ctrl+C to exit.[/dim]\n")
 
         while True:
             try:
@@ -358,10 +372,7 @@ class Agent:
                 if user_input.strip() == "/retry" and self._last_user_input:
                     self._remove_last_assistant_turn()
                     import asyncio
-                    response = asyncio.run(self.process_turn(self._last_user_input))
-                    if response and response.strip() and not any(response.startswith(p) for p in already_printed_prefixes):
-                        if not response.startswith("→ Using tool"):
-                            console.print(response)
+                    asyncio.run(self.process_turn(self._last_user_input))
                     console.print()
                     continue
                 if self._handle_slash_command(user_input.strip()):
@@ -371,14 +382,8 @@ class Agent:
 
             self._last_user_input = user_input
             import asyncio
-            response = asyncio.run(self.process_turn(user_input))
-
+            asyncio.run(self.process_turn(user_input))
             self.memory.save(self.config.sessions_dir)
-
-            if response and response.strip() and not any(response.startswith(p) for p in already_printed_prefixes):
-                if not response.startswith("→ Using tool"):
-                    console.print(response)
-
             console.print()
 
     def _handle_slash_command(self, cmd: str) -> bool:
@@ -386,7 +391,18 @@ class Agent:
             return False
         if cmd == "/help":
             console.print(
-                "Available: /help, /undo, /memory, /clear, /stats, /retry, /save, /temp, /inspect, /model, /trust, /exit\n"
+                "Commands:\n"
+                "  /model [name]  List models and pick one (or switch directly by name)\n"
+                "  /temp [value]  Show or set temperature (0.0-2.0)\n"
+                "  /trust         Toggle trust mode (auto-approve shell commands)\n"
+                "  /undo          Revert the last file write\n"
+                "  /clear         Clear conversation context\n"
+                "  /retry         Re-run your last request\n"
+                "  /stats         Session statistics\n"
+                "  /memory        Session ID and counts\n"
+                "  /inspect       Show last tool result\n"
+                "  /save          Force-save session\n"
+                "  /exit          Quit\n\n"
                 "Most work happens by just chatting normally."
             )
             return True
@@ -399,7 +415,7 @@ class Agent:
                 content = last_tool.get("content", "")
                 try:
                     parsed = json.loads(content) if isinstance(content, str) else content
-                        console.print(json.dumps(parsed, indent=2))
+                    console.print(json.dumps(parsed, indent=2))
                 except Exception:
                     console.print(content[:2000])
             return True
@@ -461,5 +477,66 @@ class Agent:
             self.trust_mode = not self.trust_mode
             console.print(f"Trust mode: {'[green]ON[/green]' if self.trust_mode else '[red]OFF[/red]'}")
             return True
+        if cmd == "/model" or cmd.startswith("/model "):
+            self._handle_model_command(cmd)
+            return True
         console.print(f"[yellow]Unknown command:[/yellow] {cmd}")
         return True
+
+    def _handle_model_command(self, cmd: str):
+        """Interactive model picker — lists installed Ollama models and switches to the chosen one."""
+        import asyncio
+
+        from xyz_local.tools import _human_size
+
+        models = asyncio.run(self.client.list_models())
+        if not models:
+            console.print("[yellow]No models found (is Ollama running?).[/yellow]")
+            return
+
+        names = [m.get("name", "") for m in models if m.get("name")]
+
+        # Direct switch: "/model <name>"
+        parts = cmd.split(maxsplit=1)
+        if len(parts) == 2:
+            requested = parts[1].strip()
+            match = requested if requested in names else next(
+                (n for n in names if n.startswith(requested)), None
+            )
+            if match:
+                self._switch_model(match)
+            else:
+                console.print(f"[yellow]No model matching '{requested}'. Type /model to list.[/yellow]")
+            return
+
+        # Interactive list
+        console.print("\n[bold]Available models:[/bold]")
+        for i, m in enumerate(models, 1):
+            name = m.get("name", "?")
+            size = _human_size(m.get("size", 0)) if m.get("size") else ""
+            marker = "[green]●[/green]" if name == self.client.model else " "
+            console.print(f"  {marker} [cyan]{i:>2}[/cyan]. {name}  [dim]{size}[/dim]")
+
+        try:
+            choice = Prompt.ask("\nSelect a model number (or Enter to cancel)", default="").strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+        if not choice:
+            return
+        try:
+            idx = int(choice)
+            if 1 <= idx <= len(models):
+                self._switch_model(models[idx - 1]["name"])
+            else:
+                console.print("[yellow]Number out of range.[/yellow]")
+        except ValueError:
+            console.print("[yellow]Please enter a valid number.[/yellow]")
+
+    def _switch_model(self, name: str):
+        if name == self.client.model:
+            console.print(f"[dim]Already using {name}[/dim]")
+            return
+        old = self.client.model
+        self.client.model = name
+        self.memory.model = name
+        console.print(f"[green]Switched model:[/green] {old} → [bold]{name}[/bold]")
