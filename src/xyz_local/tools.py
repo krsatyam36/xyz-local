@@ -315,6 +315,55 @@ def get_cwd() -> dict[str, Any]:
     return {"cwd": os.getcwd()}
 
 
+def create_directory(path: str) -> dict[str, Any]:
+    p = normalize_path(path)
+    if is_dangerous_write_path(str(p)):
+        return {"error": f"Refusing to create directory at dangerous path: {path}"}
+    try:
+        existed = p.exists()
+        p.mkdir(parents=True, exist_ok=True)
+        return {
+            "success": True,
+            "path": str(p),
+            "message": f"Directory already existed: {p}" if existed else f"Created directory: {p}",
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def find_files(pattern: str, path: str = ".", include_dirs: bool = False) -> dict[str, Any]:
+    import fnmatch
+    root = normalize_path(path)
+    if not root.exists():
+        return {"error": f"Path does not exist: {path}"}
+
+    gitignore_patterns = _load_gitignore(root)
+    matches: list[str] = []
+
+    try:
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [
+                d for d in dirnames
+                if d not in {".git", "__pycache__", "node_modules", ".venv", "venv"}
+                and not (gitignore_patterns and _is_ignored(Path(dirpath) / d, root, gitignore_patterns))
+            ]
+            if include_dirs:
+                for d in dirnames:
+                    if fnmatch.fnmatch(d, pattern):
+                        rel = str((Path(dirpath) / d).relative_to(root))
+                        matches.append(rel)
+            for fname in filenames:
+                if fnmatch.fnmatch(fname, pattern):
+                    rel = str((Path(dirpath) / fname).relative_to(root))
+                    matches.append(rel)
+                    if len(matches) >= 200:
+                        return {"matches": matches, "truncated": True}
+    except Exception as e:
+        return {"error": str(e)}
+
+    return {"matches": sorted(matches), "count": len(matches)}
+
+
 TOOL_DEFINITIONS = [
     {
         "type": "function",
@@ -419,11 +468,41 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_cwd",
-            "description": "Get the agent's current working directory. Useful when the agent needs to confirm location.",
+            "description": "Get the agent's current working directory.",
             "parameters": {
                 "type": "object",
                 "properties": {},
                 "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_directory",
+            "description": "Create a directory (and any missing parents). Safe to call if directory already exists.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Directory path to create"},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_files",
+            "description": "Find files by filename pattern (glob). Use grep_files to search file contents instead.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "Glob pattern, e.g. '*.py', 'test_*.py', 'config.*'"},
+                    "path": {"type": "string", "description": "Directory to search in", "default": "."},
+                    "include_dirs": {"type": "boolean", "description": "Also match directory names", "default": False},
+                },
+                "required": ["pattern"],
             },
         },
     },
@@ -438,4 +517,6 @@ TOOL_REGISTRY = {
     "write_file": write_file,
     "execute_shell": execute_shell,
     "get_cwd": get_cwd,
+    "create_directory": create_directory,
+    "find_files": find_files,
 }

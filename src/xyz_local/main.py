@@ -129,8 +129,17 @@ def models():
     cfg = get_config()
     client = OllamaClient(base_url=cfg.ollama_base_url)
 
+    import asyncio
+
+    async def _list():
+        try:
+            result = await client.list_models()
+            return result
+        finally:
+            await client.close()
+
     try:
-        models = client.list_models()
+        models = asyncio.run(_list())
     except Exception as e:
         console.print(f"[red]Could not reach Ollama:[/red] {e}")
         raise typer.Exit(1)
@@ -257,7 +266,6 @@ def run(
     client = OllamaClient(base_url=cfg.ollama_base_url, model=chosen_model, timeout=cfg.ollama_timeout)
     agent = Agent(client=client, config=cfg, trust_mode=trust)
 
+    # process_turn streams its own output to the console; no need to re-print.
     import asyncio
-    response = asyncio.run(agent.process_turn(prompt))
-    if response and not any(response.startswith(p) for p in ("Hello!", "I am a local")):
-        console.print(response)
+    asyncio.run(agent.process_turn(prompt))

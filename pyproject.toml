@@ -39,7 +39,7 @@ dev = [
 ]
 
 [project.scripts]
-xyz-local = "xyz_local.main:cli"
+xyz-local = "xyz_local.main:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
