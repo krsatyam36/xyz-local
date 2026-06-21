@@ -2,11 +2,11 @@
 
 # xyz-local — Fully Local AI Coding Agent
 
-**v2.0.0** — *An open source AI coding agent for the terminal, powered by Ollama*
+**v3.0.0** — *An open source AI coding agent for the terminal, powered by Ollama, now with 29 tools and a full-screen TUI*
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
 [![Ollama](https://img.shields.io/badge/Ollama-Local-4B8BBE?style=flat&logo=ollama&logoColor=white)](https://ollama.com)
-[![Rich](https://img.shields.io/badge/Rich-13.7+-FC6D26?style=flat&logo=python&logoColor=white)](https://rich.readthedocs.io)
+[![Textual](https://img.shields.io/badge/Textual-TUI-FF6F00?style=flat&logo=python&logoColor=white)](https://textual.textualize.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)](.github/workflows/ci.yml)
 
@@ -21,13 +21,19 @@ A fully local, privacy-first AI coding agent that runs 100% on your machine usin
 ## Features
 
 - **Pure local inference** via Ollama — no cloud, no API keys, no costs
-- **Full agentic tool loop** with 10 tools: `list_directory`, `read_file`, `write_file`, `edit_file`, `grep_files`, `find_files`, `create_directory`, `execute_shell`, `get_cwd`
+- **Full agentic tool loop** with 29 tools across 5 categories:
+  - 9 core tools (file read/write, search, shell, directory ops)
+  - 6 file operations (delete, move, copy, multi-edit, directory tree, file info)
+  - 5 code intelligence (run tests, lint, format, syntax check, symbol extraction)
+  - 5 git operations (status, diff, log, branches, commit)
+  - 4 web/producivity (web fetch, task tracking, system info, which)
+- **Full-screen Textual TUI** with scrollable conversation, rich markdown, streaming, model picker, and confirmation modals
+- **Classic CLI REPL** also available (`--plain`)
 - **Real-time streaming** — tokens appear as they're generated
-- **Smart safety system** — three-tier permission model (AUTO / ASK / DENY) with custom patterns, malicious pip detection, and dangerous path protection
+- **Smart safety system** — three-tier permission model with confirm gating for all mutating tools, dangerous path protection, and `--trust` mode for auto-approval
 - **In-session model switching** — type `/model` to pick any installed Ollama model without restarting
 - **Session memory** with undo for file writes, auto-naming, and resume support
-- **Rich terminal UI** with streaming, panels, tool call previews, and colored output
-- **Graceful model support** — detects when a model doesn't support tool calling and shows helpful fallback parsing
+- **Backup-before-mutate** — every destructive operation (delete, overwrite, move, multi-edit, etc.) creates a `.bak` copy automatically
 - **Non-interactive mode** — `xyz-local run <prompt>` for scripting and automation
 - **Docker support** — ready-to-use container image
 
@@ -52,7 +58,7 @@ git clone https://github.com/krsatyam36/xyz-local.git
 cd xyz-local
 python3 -m venv .venv
 source .venv/bin/activate          # On Windows: .venv\Scripts\activate
-pip install -e .
+pip install -e ".[dev]"
 ```
 
 ## Quick Start
@@ -61,8 +67,11 @@ pip install -e .
 # Activate your virtual environment
 source .venv/bin/activate
 
-# Start an interactive session
+# Start an interactive session (TUI)
 xyz-local chat
+
+# Use the classic plain REPL
+xyz-local chat --plain
 
 # Or specify a model and trust mode
 xyz-local chat -m qwen2.5-coder:latest --trust
@@ -76,12 +85,10 @@ xyz-local run "List all Python files in the project"
 ```
 > Create a file called hello.py that prints "Hello from xyz-local"
 
-⚙ write_file hello.py
+→ Write hello.py
   ✓ File written successfully.
 
-> Run it
-
-⚙ execute_shell `python3 hello.py`
+→ Run python3 hello.py
   exit=0
   Hello from xyz-local
 ```
@@ -90,7 +97,7 @@ xyz-local run "List all Python files in the project"
 
 | Command | Description | Key Options |
 |---------|-------------|-------------|
-| `chat` | Start an interactive coding session | `--model/-m`, `--session/-s`, `--trust`, `--verbose/-v`, `--dir/-d` |
+| `chat` | Start an interactive session | `--model/-m`, `--session/-s`, `--trust`, `--verbose/-v`, `--dir/-d`, `--plain` |
 | `run` | Process a single prompt and exit | `--model/-m`, `--trust` |
 | `models` | List available Ollama models | — |
 | `sessions` | List or clean up previous sessions | `--cleanup/-c`, `--force/-f` |
@@ -114,7 +121,17 @@ xyz-local run "List all Python files in the project"
 | `/trust` | Toggle trust mode |
 | `/exit` | End the session |
 
-## The Tools
+## TUI Key Bindings
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+C` | Quit |
+| `Ctrl+L` | Clear conversation |
+| `Ctrl+P` | Open model picker |
+
+## The Tools — 29 Tools Across 5 Categories
+
+### Core (9)
 
 | Tool | Description |
 |------|-------------|
@@ -128,15 +145,57 @@ xyz-local run "List all Python files in the project"
 | `execute_shell` | Run shell commands with safety tiers |
 | `get_cwd` | Return current working directory |
 
+### File Operations (6)
+
+| Tool | Description |
+|------|-------------|
+| `delete_file` | Delete a file (backs up first) |
+| `move_file` | Move/rename a file or directory |
+| `copy_file` | Copy a file or directory |
+| `multi_edit` | Apply multiple precise edits to one file atomically |
+| `directory_tree` | Show directory as an indented tree (gitignore-aware) |
+| `file_info` | Get detailed metadata for a file or directory |
+
+### Code Intelligence (5)
+
+| Tool | Description |
+|------|-------------|
+| `run_tests` | Run pytest and report pass/fail with summary |
+| `lint_code` | Run ruff linter and report issues |
+| `format_code` | Auto-format Python code with ruff |
+| `python_check` | Check a Python file for syntax errors |
+| `extract_symbols` | List functions, classes, methods, and imports with line numbers |
+
+### Git (5)
+
+| Tool | Description |
+|------|-------------|
+| `git_status` | Show working tree status (branch + changed files) |
+| `git_diff` | Show unstaged or staged diff |
+| `git_log` | Show recent commits with hash, author, date, subject |
+| `git_branch` | List, create, or switch branches |
+| `git_commit` | Commit staged changes |
+
+### Web / Productivity (4)
+
+| Tool | Description |
+|------|-------------|
+| `web_fetch` | Fetch a URL (HTML stripped to text) |
+| `todo_write` | Manage a session task list |
+| `system_info` | Report OS, Python version, CPU, memory, GPU |
+| `which_command` | Locate an executable on PATH |
+
 ## Safety System
 
-Commands are classified into three tiers:
+Commands and tools are classified into three tiers:
 
 | Tier | Behavior | Examples |
 |------|----------|---------|
-| **AUTO** | Runs without prompt | `ls`, `pwd`, `git status`, `pytest`, `pip list`, `ollama list`, `cat`, `grep` |
-| **ASK** | Requires confirmation | `pip install`, `git commit`, `rm`, `mv`, `docker run`, `curl` |
-| **DENY** | Hard blocked | `rm -rf /`, `sudo rm`, fork bombs, `curl \| bash`, known malicious pip packages |
+| **AUTO** | Runs without prompt | `ls`, `pwd`, `git status`, `pytest`, `pip list`, read-only tools |
+| **ASK** | Requires confirmation | `rm`, `mv`, `pip install`, `git commit`, all mutating tools, `web_fetch` |
+| **DENY** | Hard blocked | `rm -rf /`, `sudo rm`, fork bombs, dangerous paths (`/etc`, `/usr`, etc.) |
+
+Mutating tools (`delete_file`, `move_file`, `copy_file`, `multi_edit`, `format_code`, `git_commit`, `git_branch create/switch`, `web_fetch`) all route through the same confirm prompt as shell commands, and are auto-approved under `--trust`.
 
 Custom approval patterns can be added via `~/.xyz-local/config.json`:
 
@@ -177,23 +236,27 @@ Environment variable overrides:
 User (terminal)
    |
    v
-Agent.run_interactive()   [agent.py]
-   |
+XYZApp (Textual TUI)        [tui.py]
+   |  - Full-screen chat interface
+   |  - Model picker / confirm modals
    v
-Agent.process_turn()      [agent.py]
-   |  - System prompt with tool list
+Agent.process_turn()         [agent.py]
+   |  - UI sink abstraction (TextualUI / ConsoleUI)
    |  - Streaming async chat loop
+   |  - Confirm gating for mutating tools
    |  - Multi-turn tool execution
    v
-OllamaClient.chat()       [ollama_client.py]
+OllamaClient.chat()          [ollama_client.py]
    |  - Streaming API via httpx
    |  - Tool call parsing + fallback
    v
-Tool execution            [tools.py + safety.py]
+Tool execution               [tools.py + safety.py]
+   |  - 29 tool implementations
    |  - Permission classification
    |  - Dangerous path checks
+   |  - .bak backup before mutation
    v
-SessionMemory             [memory.py]
+SessionMemory                [memory.py]
    |  - Message persistence
    |  - File undo history
    v
@@ -202,13 +265,15 @@ Response back to user
 
 ### Core Modules
 
-- **agent.py** — The heart. System prompt, streaming loop, tool orchestration, slash commands, caching, context warnings.
+- **agent.py** — The heart. System prompt, streaming loop, tool orchestration, slash commands, caching, context warnings, confirm gating for mutating tools.
 - **ollama_client.py** — Async HTTP client with retry logic, streaming, tool call fallback parsing, health checks.
-- **tools.py** — All 10 tool implementations with `.gitignore`-aware search, human-readable sizes, binary detection, backup creation.
+- **tools.py** — All 29 tool implementations with `.gitignore`-aware search, human-readable sizes, binary detection, `.bak` backup creation, and dangerous-path refusal.
 - **safety.py** — Three-tier permission system with custom patterns, malicious package detection, dangerous path protection.
 - **memory.py** — Session persistence as JSON, file undo stack, auto-naming.
 - **config.py** — Configuration loading from JSON file + env vars + defaults.
-- **main.py** — Typer CLI with 5 commands and global `--version`.
+- **main.py** — Typer CLI with 5 commands, global `--version`, TUI/plain mode selection.
+- **ui.py** — UI sink abstraction (`AgentUI` / `ConsoleUI` / `TextualUI`) decoupling the agent loop from output rendering.
+- **tui.py** — Full-screen Textual application with conversation scroll, streaming, model picker, confirmation modals, status bar.
 
 ## Development
 
@@ -216,12 +281,14 @@ Response back to user
 # Install with dev dependencies
 pip install -e ".[dev]"
 
-# Run tests
+# Run tests (23 passing)
 pytest -v
 
-# Lint and type check
-ruff check src/
-mypy src/
+# Lint
+ruff check src/ tests/
+
+# Type check
+mypy src/ tests/ --ignore-missing-imports
 
 # Install pre-commit hooks
 pre-commit install

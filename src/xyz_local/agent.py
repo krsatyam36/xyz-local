@@ -11,22 +11,60 @@ This version includes:
 from __future__ import annotations
 
 import json
+import re as _re
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
 from rich.console import Console
-from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
-
-from datetime import datetime
+from rich.prompt import Prompt
 
 from xyz_local.config import Config
 from xyz_local.memory import SessionMemory
 from xyz_local.ollama_client import OllamaClient
 from xyz_local.safety import classify_command, PermissionTier
 from xyz_local.tools import TOOL_DEFINITIONS, TOOL_REGISTRY
+from xyz_local.ui import AgentUI, ConsoleUI
 
 console = Console()
+
+# Mutating / network tools that require confirmation (auto-approved under --trust).
+# Maps tool name → reason shown in the confirmation prompt.
+_CONFIRM_TOOLS = {
+    "delete_file": "Deletes a file",
+    "move_file": "Moves/renames a file",
+    "copy_file": "Writes a copy (may overwrite)",
+    "multi_edit": "Edits a file in place",
+    "format_code": "Reformats files in place",
+    "git_branch": "Creates/switches a git branch",
+    "git_commit": "Creates a git commit",
+    "web_fetch": "Makes an outbound network request",
+}
+
+# Matches the start of an inline tool call in streamed text, in any of the
+# formats local models emit: {"name": ...}, ```json, ```{, or <tool_call> /
+# <tool_request> tags. Used to cut tool-call JSON out of the visible stream
+# while still showing the prose that precedes it.
+_TOOL_MARKER = _re.compile(r'\{\s*"name"\s*:|```\s*json|```\s*\{|<tool[_a-z]*', _re.IGNORECASE)
+# Longest marker is "<tool_request" (13). Hold back this many trailing chars
+# while streaming so a marker split across tokens is never shown.
+_STREAM_HOLDBACK = 16
+
+
+def _visible_cut(text: str, final: bool) -> int:
+    """Return how many leading chars of ``text`` are safe to display.
+
+    Everything from the first tool-call marker onward is hidden. While streaming
+    (``final=False``) we also hold back the trailing chars that might be the
+    start of a marker still being received.
+    """
+    m = _TOOL_MARKER.search(text)
+    if m:
+        return m.start()
+    if final:
+        return len(text)
+    return max(0, len(text) - _STREAM_HOLDBACK)
 
 
 def _sanitize_assistant_text(text: str) -> str:
@@ -89,11 +127,13 @@ class Agent:
         trust_mode: bool = False,
         verbose: bool = False,
         resume_session: Optional[str] = None,
+        ui: Optional[AgentUI] = None,
     ):
         self.client = client
         self.config = config
         self.trust_mode = trust_mode
         self.verbose = verbose
+        self.ui: AgentUI = ui or ConsoleUI()
         self.memory = self._load_or_create_memory(resume_session)
         self.memory.model = client.model
         self._last_user_input: str = ""
@@ -110,40 +150,42 @@ class Agent:
     def _get_system_prompt(self) -> str:
         return SYSTEM_PROMPT.format(cwd=str(Path.cwd()))
 
-    def _execute_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
-        if name not in TOOL_REGISTRY:
-            return {"error": f"Unknown tool: {name}"}
-
-        func = TOOL_REGISTRY[name]
-
+    async def _authorize(self, name: str, args: dict[str, Any]) -> Optional[dict[str, Any]]:
+        """Permission gate. Returns an error result dict if blocked, else None."""
+        # execute_shell uses the full command classifier.
         if name == "execute_shell":
             cmd = args.get("command", "")
             desc = args.get("description", "")
             perm = classify_command(cmd, trust_mode=self.trust_mode)
-
             if perm.tier == PermissionTier.DENY:
                 return {"error": f"Command denied by safety system: {perm.reason}", "command": cmd}
-
             if perm.tier == PermissionTier.ASK:
-                console.print(Panel(
-                    f"[yellow]Command requires confirmation[/yellow]\n\n"
-                    f"Command: [bold]{cmd}[/bold]\n"
-                    f"Reason: {perm.reason}\n"
-                    f"Description from agent: {desc}",
-                    title="Shell Command",
-                    border_style="yellow",
-                ))
-                if not Confirm.ask("Allow this command?", default=False):
+                if not await self.ui.confirm(cmd, perm.reason, desc):
                     return {"error": "User denied execution", "command": cmd}
+            return None
 
-        if name in ("write_file", "edit_file"):
-            path = args.get("path", "")
-            if path and self._is_very_dangerous_path(path):
-                return {"error": f"Refusing to modify dangerous path: {path}"}
+        # Dangerous-path guard for any tool that writes to a path.
+        for key in ("path", "src", "dest"):
+            val = args.get(key, "")
+            if val and self._is_very_dangerous_path(val):
+                return {"error": f"Refusing to modify dangerous path: {val}"}
 
+        # Confirm mutating / network tools (auto-approved under trust mode).
+        if name in _CONFIRM_TOOLS and not self.trust_mode:
+            # git_branch only mutates on create/switch.
+            if name == "git_branch" and args.get("action", "list") == "list":
+                return None
+            from xyz_local.ui import tool_preview
+            summary = f"{name}  {tool_preview(name, args)}".strip()
+            if not await self.ui.confirm(summary, _CONFIRM_TOOLS[name], ""):
+                return {"error": "User denied operation", "tool": name}
+        return None
+
+    def _execute_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        if name not in TOOL_REGISTRY:
+            return {"error": f"Unknown tool: {name}"}
         try:
-            result = func(**args)
-            return result
+            return TOOL_REGISTRY[name](**args)
         except Exception as e:
             return {"error": f"Tool execution failed: {e}"}
 
@@ -151,34 +193,12 @@ class Agent:
         from xyz_local.safety import is_dangerous_write_path
         return is_dangerous_write_path(path)
 
-    def _args_preview(self, name: str, args: dict) -> str:
-        """Compact display of tool arguments for the console."""
-        if name == "read_file":
-            path = args.get("path", "")
-            offset = args.get("offset", 1)
-            suffix = f":{offset}" if offset != 1 else ""
-            return f" {path}{suffix}"
-        elif name in ("write_file", "create_directory"):
-            return f" {args.get('path', '')}"
-        elif name == "edit_file":
-            path = args.get("path", "")
-            old = args.get("old_string", "")[:40].replace("\n", "↵")
-            return f" {path} [{old}…]"
-        elif name == "execute_shell":
-            cmd = args.get("command", "")[:70]
-            return f" `{cmd}`"
-        elif name == "grep_files":
-            pat = args.get("pattern", "")
-            path = args.get("path", ".")
-            return f" /{pat}/ in {path}"
-        elif name in ("list_directory", "find_files"):
-            return f" {args.get('path', '.')}"
-        return ""
-
     async def process_turn(self, user_input: str) -> str:
-        """Process one user message, running the agentic tool loop until done."""
-        import sys
+        """Process one user message, running the agentic tool loop until done.
 
+        All output goes through ``self.ui`` so the same loop drives both the
+        plain console and the Textual TUI.
+        """
         if not self.memory.messages:
             self.memory.add_message("system", self._get_system_prompt())
 
@@ -192,17 +212,17 @@ class Agent:
 
             total_chars = sum(len(str(m.get("content", ""))) for m in self.memory.messages)
             if total_chars > 30000:
-                console.print(f"[yellow]Context ~{total_chars} chars — use /clear if responses slow down[/yellow]")
+                await self.ui.notice(f"Context ~{total_chars} chars — use /clear if responses slow down", "yellow")
 
             if self.verbose:
-                console.print(f"[dim]Turn {turn}/{self.config.max_turns} · {len(self.memory.messages)} messages[/dim]")
+                await self.ui.notice(f"Turn {turn}/{self.config.max_turns} · {len(self.memory.messages)} messages")
 
             full_response = ""
             native_tool_calls: list = []
-            # Streaming state: None = undecided, True = streaming prose live,
-            # False = suppressed (looks like an inline tool-call JSON blob).
-            stream_live: Optional[bool] = None
+            shown_len = 0          # how many chars of full_response we've displayed
             printed_anything = False
+            t0 = time.monotonic()
+            thinking_sent = False
 
             extra_options = {}
             if self.config.num_ctx > 0:
@@ -214,47 +234,44 @@ class Agent:
                 temperature=self.config.temperature,
                 extra_options=extra_options,
             ):
-                if event["type"] == "token":
-                    token = event.get("data", "")
-                    full_response += token
-                    # Decide once, on the first non-whitespace content, whether this
-                    # is prose (stream it) or an inline tool call (hide the raw JSON).
-                    if stream_live is None:
-                        stripped = full_response.lstrip()
-                        if stripped:
-                            stream_live = not (
-                                stripped[0] == "{"
-                                or stripped.startswith("```")
-                                or stripped.lower().startswith("<tool_call")
-                            )
-                            if stream_live:
-                                sys.stdout.write(stripped)
-                                sys.stdout.flush()
-                                printed_anything = True
-                    elif stream_live:
-                        sys.stdout.write(token)
-                        sys.stdout.flush()
+                etype = event["type"]
+                if not thinking_sent and etype in ("token", "tool_call", "done"):
+                    await self.ui.thinking(int((time.monotonic() - t0) * 1000))
+                    thinking_sent = True
+
+                if etype == "token":
+                    full_response += event.get("data", "")
+                    # Show prose up to (but not including) any inline tool-call JSON.
+                    cut = _visible_cut(full_response, final=False)
+                    if cut > shown_len:
+                        await self.ui.stream_delta(full_response[shown_len:cut])
+                        shown_len = cut
                         printed_anything = True
-                elif event["type"] == "tool_call":
+                elif etype == "tool_call":
                     native_tool_calls.append(event["data"])
-                elif event["type"] == "done":
+                elif etype == "done":
                     if event.get("tool_calls"):
                         native_tool_calls = event["tool_calls"]
                     break
-                elif event["type"] == "error":
+                elif etype == "error":
                     if printed_anything:
-                        sys.stdout.write("\n")
-                        sys.stdout.flush()
+                        await self.ui.stream_end()
                     err = event["data"]
                     if err == "MODEL_DOES_NOT_SUPPORT_TOOLS":
-                        msg = (
-                            "This model doesn't support tool calling. "
-                            "Try: xyz-local chat -m qwen2.5-coder:latest"
-                        )
-                        console.print(f"[red]{msg}[/red]")
+                        msg = "This model doesn't support tool calling. Try: qwen2.5-coder:latest"
+                        await self.ui.notice(msg, "red")
                         return msg
-                    console.print(f"[red]Error from model:[/red] {err}")
+                    await self.ui.notice(f"Error from model: {err}", "red")
                     return f"Error: {err}"
+
+            # Flush any held-back trailing prose (the holdback buffer + text up
+            # to a tool-call marker). For a pure-text answer this shows the rest;
+            # for a tool turn it stops exactly at the JSON.
+            final_cut = _visible_cut(full_response, final=True)
+            if final_cut > shown_len:
+                await self.ui.stream_delta(full_response[shown_len:final_cut])
+                shown_len = final_cut
+                printed_anything = True
 
             # Fallback: parse tool calls out of streamed text if API didn't return them natively
             if not native_tool_calls and full_response:
@@ -265,23 +282,21 @@ class Agent:
 
             if not native_tool_calls:
                 # Pure text response — done
-                if printed_anything:
-                    sys.stdout.write("\n")
-                    sys.stdout.flush()
                 final = clean_response or full_response or ""
-                if not final:
+                if printed_anything:
+                    await self.ui.stream_end()
+                elif final:
+                    await self.ui.assistant_message(final)
+                else:
                     final = "No response from model. Please rephrase your request."
-                    console.print(f"[yellow]{final}[/yellow]")
-                elif not printed_anything:
-                    console.print(final)
+                    await self.ui.notice(final, "yellow")
                 self.memory.add_message("assistant", final)
                 self.memory.save(self.config.sessions_dir)
                 return final
 
-            # Has tool calls — ensure newline after any streamed reasoning text
+            # Has tool calls — finalize any streamed reasoning text first
             if printed_anything:
-                sys.stdout.write("\n")
-                sys.stdout.flush()
+                await self.ui.stream_end()
 
             # Normalize tool calls to a consistent format
             normalized_tcs = []
@@ -303,38 +318,21 @@ class Agent:
                 "tool_calls": normalized_tcs,
             })
 
-            # Execute each tool and append results
+            # Execute each tool and report through the UI
             for tc in normalized_tcs:
                 name = tc["function"]["name"]
                 args = tc["function"]["arguments"]
 
-                console.print(f"[cyan]⚙[/cyan] [bold]{name}[/bold]{self._args_preview(name, args)}")
+                await self.ui.tool_call(name, args)
 
-                result = self._execute_tool(name, args)
+                blocked = await self._authorize(name, args)
+                result = blocked if blocked is not None else self._execute_tool(name, args)
 
                 self.memory.messages.append({
                     "role": "tool",
                     "content": json.dumps(result, ensure_ascii=False),
                 })
-
-                if "error" in result:
-                    console.print(f"  [red]✗[/red] {result['error'][:300]}")
-                elif name == "execute_shell":
-                    exit_code = result.get("exit_code", "?")
-                    stdout = result.get("stdout", "")
-                    stderr = result.get("stderr", "")
-                    output = stdout or stderr
-                    if output:
-                        lines = output.strip().split("\n")
-                        preview = "\n".join(f"  {l}" for l in lines[:20])
-                        console.print(f"  [dim]exit={exit_code}[/dim]\n{preview}")
-                        if len(lines) > 20:
-                            console.print(f"  [dim]... {len(lines) - 20} more lines[/dim]")
-                    else:
-                        console.print(f"  [dim]exit={exit_code}[/dim]")
-                elif name in ("write_file", "edit_file", "create_directory"):
-                    msg = result.get("message", "done")
-                    console.print(f"  [green]✓[/green] {msg}")
+                await self.ui.tool_result(name, result)
 
         self.memory.add_message("assistant", "(max turns reached)")
         self.memory.save(self.config.sessions_dir)
@@ -453,7 +451,7 @@ class Agent:
                     else:
                         console.print("[yellow]Temperature must be between 0.0 and 2.0[/yellow]")
                 except ValueError:
-                    console.print(f"[yellow]Usage: /temp <value> (0.0-2.0)[/yellow]")
+                    console.print("[yellow]Usage: /temp <value> (0.0-2.0)[/yellow]")
             else:
                 console.print(f"[yellow]Current temperature: {self.config.temperature}[/yellow]")
             return True

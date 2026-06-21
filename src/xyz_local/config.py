@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +20,11 @@ class Config:
     max_turns: int = 15   # slightly higher for local models that need more steps
     temperature: float = 0.1  # low temperature for deterministic tool calling
     ollama_timeout: int = 300  # seconds for Ollama API calls
-    num_ctx: int = 0  # context window size (0 = model default)
+    # Context window. Ollama defaults to only 2048 tokens, which is far too small
+    # for an agent loop (a single file read overflows it and the model starts
+    # looping because earlier history gets truncated). 8192 is a safe default
+    # that fits a 7B-Q4 model on a 4GB GPU with CPU spillover.
+    num_ctx: int = 8192
 
     def __post_init__(self):
         self.sessions_dir.mkdir(parents=True, exist_ok=True)

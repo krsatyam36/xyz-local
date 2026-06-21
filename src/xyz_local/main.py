@@ -35,6 +35,26 @@ def _main_callback(
         raise typer.Exit()
 
 
+def _model_param_size(cfg, model_name: str) -> str:
+    """Best-effort lookup of a model's parameter size (e.g. '7.6B') for display."""
+    import asyncio
+
+    async def _fetch():
+        client = OllamaClient(base_url=cfg.ollama_base_url)
+        try:
+            for m in await client.list_models():
+                if m.get("name", "").startswith(model_name):
+                    return m.get("details", {}).get("parameter_size", "")
+            return ""
+        finally:
+            await client.close()
+
+    try:
+        return asyncio.run(_fetch()) or ""
+    except Exception:
+        return ""
+
+
 @app.command()
 def chat(
     model: Optional[str] = typer.Option(
@@ -52,6 +72,9 @@ def chat(
     directory: Optional[str] = typer.Option(
         None, "--dir", "-d", help="Working directory for the session (default: current dir)"
     ),
+    plain: bool = typer.Option(
+        False, "--plain", help="Use the simple line-based REPL instead of the full-screen TUI"
+    ),
 ):
     """Start an interactive coding session with a local Ollama model."""
     cfg = get_config()
@@ -65,35 +88,6 @@ def chat(
         os.chdir(target)
         console.print(f"[dim]Changed working directory to: {target}[/dim]")
 
-    async def _fetch_model_info():
-        try:
-            client2 = OllamaClient(base_url=cfg.ollama_base_url)
-            models = await client2.list_models()
-            for m in models:
-                if m.get("name", "").startswith(chosen_model):
-                    return m.get("details", {}).get("parameter_size", "?")
-            return None
-        except Exception:
-            return None
-
-    model_info = ""
-    try:
-        import asyncio
-        param_size = asyncio.run(_fetch_model_info())
-        if param_size:
-            model_info = f" ({param_size})"
-    except Exception:
-        pass
-
-    console.print(Panel.fit(
-        f"[bold cyan]xyz-local[/bold cyan] — Local AI Coding Agent (Ollama)\n"
-        f"Model: [green]{chosen_model}{model_info}[/green]\n"
-        f"Trust mode: {'[yellow]ON[/yellow]' if trust else '[dim]OFF[/dim]'}\n"
-        f"Session: [dim]{session or 'new'}[/dim]",
-        title="Starting Session",
-        border_style="cyan"
-    ))
-
     try:
         client = OllamaClient(base_url=cfg.ollama_base_url, model=chosen_model, timeout=cfg.ollama_timeout)
     except Exception as e:
@@ -106,18 +100,35 @@ def chat(
         console.print("[red]Cannot reach Ollama.[/red] Make sure `ollama serve` is running.")
         raise typer.Exit(1)
 
+    if plain:
+        # Show the classic banner only for the plain REPL; the TUI has its own chrome.
+        if model_info := _model_param_size(cfg, chosen_model):
+            model_info = f" ({model_info})"
+        console.print(Panel.fit(
+            f"[bold cyan]xyz-local[/bold cyan] — Local AI Coding Agent (Ollama)\n"
+            f"Model: [green]{chosen_model}{model_info}[/green]\n"
+            f"Trust mode: {'[yellow]ON[/yellow]' if trust else '[dim]OFF[/dim]'}\n"
+            f"Session: [dim]{session or 'new'}[/dim]",
+            title="Starting Session",
+            border_style="cyan",
+        ))
+        try:
+            agent = Agent(
+                client=client, config=cfg, trust_mode=trust,
+                verbose=verbose, resume_session=session,
+            )
+            agent.run_interactive()
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Session ended by user.[/yellow]")
+            sys.exit(0)
+        except Exception as e:
+            console.print(f"[red]Fatal error:[/red] {e}")
+            raise
+        return
+
+    from xyz_local.tui import run_tui
     try:
-        agent = Agent(
-            client=client,
-            config=cfg,
-            trust_mode=trust,
-            verbose=verbose,
-            resume_session=session,
-        )
-        agent.run_interactive()
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Session ended by user.[/yellow]")
-        sys.exit(0)
+        run_tui(client=client, config=cfg, trust_mode=trust, resume_session=session)
     except Exception as e:
         console.print(f"[red]Fatal error:[/red] {e}")
         raise
